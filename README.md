@@ -6,6 +6,7 @@ Monitoring and real-time app for Aave v4.
 - [docs/architecture.md](docs/architecture.md): the monorepo, the services, and how data flows.
 - [docs/data-pipeline.md](docs/data-pipeline.md): raw, parsed and enriched data; the ClickHouse schema and the
   Dragonfly keys.
+- [docs/api.md](docs/api.md): the HTTP API and the live stream the dashboard reads.
 - [docs/dashboard-data.md](docs/dashboard-data.md): what the dashboard shows and where each number comes from.
 - [docs/branding.md](docs/branding.md): colours, type, shape and voice of the site.
 - [docs/visual-identity.html](docs/visual-identity.html): the branding shown working. Every component

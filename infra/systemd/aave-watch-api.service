@@ -1,0 +1,24 @@
+# The read-only HTTP API (crates/api). Install as /etc/systemd/system/aave-watch-api.service.
+# Listens on localhost only; the outside reaches it through the Cloudflare tunnel and the Worker.
+[Unit]
+Description=aave.watch API
+After=network-online.target clickhouse-server.service dragonfly.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/aave-watch-api
+Environment=API_LISTEN=127.0.0.1:8080
+Environment=CLICKHOUSE_URL=http://127.0.0.1:8123
+Environment=DRAGONFLY_URL=redis://127.0.0.1:6379
+Environment=CHAINS=1,8453,43114,5042
+Restart=always
+RestartSec=2
+# No account to manage, and no access to anything it does not need.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

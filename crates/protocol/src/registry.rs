@@ -7,6 +7,8 @@ use serde::Deserialize;
 pub struct Chain {
     pub chain_id: u32,
     pub name: String,
+    /// Block the earliest watched contract was deployed in: where the fetcher starts.
+    pub start_block: u64,
     pub block_time_ms: u64,
     /// Block tag a block must reach before it is written to ClickHouse.
     pub settle_tag: String,
@@ -59,6 +61,8 @@ mod tests {
         let chains = chains();
         assert!(chains.iter().any(|c| c.chain_id == 1 && c.settle_tag == "finalized"));
         assert!(chains.iter().all(|c| !c.hubs.is_empty()));
+        // a start after a Hub's first block would skip that Hub's first logs
+        assert!(chains.iter().all(|c| c.hubs.iter().all(|h| c.start_block <= h.first_block)));
         let spokes = spokes();
         assert!(spokes.iter().any(|s| s.oracle.is_some()));
         // every Spoke belongs to a chain we know

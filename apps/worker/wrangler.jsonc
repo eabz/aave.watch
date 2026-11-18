@@ -11,6 +11,10 @@
 		{ "pattern": "aave.watch", "custom_domain": true },
 		{ "pattern": "www.aave.watch", "custom_domain": true }
 	],
+	// The API on the box, through the Cloudflare Tunnel "aave-watch-box" (Workers VPC). No public hostname.
+	"vpc_services": [
+		{ "binding": "API", "service_id": "01a1ef52-9070-7be1-880c-da6f8754fb56", "remote": true }
+	],
 	// The web build is served from this Worker; /v1/* goes to the code in src/.
 	"assets": {
 		"directory": "../web/dist",

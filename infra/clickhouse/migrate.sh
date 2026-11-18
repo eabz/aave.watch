@@ -7,12 +7,13 @@ ch() { clickhouse-client "$@"; }
 ch "$@" --multiquery --query "
   CREATE DATABASE IF NOT EXISTS meta;
   CREATE TABLE IF NOT EXISTS meta.schema_migrations (name String, applied_at DateTime DEFAULT now())
-  ENGINE = MergeTree ORDER BY name;"
+  ENGINE = MergeTree ORDER BY name;" </dev/null
 for f in [0-9]*.sql; do
-  if [ "$(ch "$@" --query "SELECT count() FROM meta.schema_migrations WHERE name = '$f'")" = "0" ]; then
+  # </dev/null: with no terminal, clickhouse-client would otherwise wait on stdin
+  if [ "$(ch "$@" --query "SELECT count() FROM meta.schema_migrations WHERE name = '$f'" </dev/null)" = "0" ]; then
     echo "applying $f"
     ch "$@" --multiquery < "$f"
-    ch "$@" --query "INSERT INTO meta.schema_migrations (name) VALUES ('$f')"
+    ch "$@" --query "INSERT INTO meta.schema_migrations (name) VALUES ('$f')" </dev/null
   fi
 done
 echo "schema is up to date"

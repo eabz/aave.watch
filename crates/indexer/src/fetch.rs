@@ -39,7 +39,7 @@ pub async fn run() -> Result<()> {
 
 async fn run_chain(chain: registry::Chain, rpc: Rpc, ch: ClickHouse) -> Result<()> {
     let add_spoke = abi::topic0("hub", "AddSpoke").context("AddSpoke is not in topics.tsv")?;
-    let first = chain.hubs.iter().map(|h| h.first_block).min().context("chain has no Hub")?;
+    let first = chain.start_block;
     let mut watch = watch_list(&chain, &rpc, &ch, add_spoke).await?;
     let size = AtomicU64::new(env_u64("FETCH_RANGE", 2_000).clamp(1, MAX_RANGE));
     // How often to look at the settle tag once caught up.
@@ -117,7 +117,7 @@ async fn round(
         let mut new = vec![spoke];
         new.extend(rpc.oracle(&new[0]).await);
         // A Spoke is deployed and configured before a Hub announces it. Fetch that history for
-        // it alone, back to the chain's first Hub block, before the walk goes on. Rare, and one
+        // it alone, back to the chain's start block, before the walk goes on. Rare, and one
         // request per MAX_RANGE blocks.
         let upto = ch.cursor(id).await?.unwrap_or(0);
         let (lookback, mut from, mut earlier) = (AtomicU64::new(MAX_RANGE), first, 0);

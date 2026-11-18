@@ -1,0 +1,57 @@
+-- SAMPLE DATA for local development only. Invented numbers on real contract addresses, so the API
+-- and the dashboard have something to show before the indexer has run. Never load on the server.
+-- usage: clickhouse-client --multiquery < infra/clickhouse/dev/seed.sql
+INSERT INTO meta.chains (chain_id, name, block_time_ms, settle_tag, explorer_url) VALUES
+ (1,'Ethereum',12000,'finalized','https://etherscan.io'), (8453,'Base',2000,'safe','https://basescan.org'),
+ (43114,'Avalanche',1500,'finalized','https://snowtrace.io'), (5042,'Arc',500,'finalized','');
+INSERT INTO meta.hubs (chain_id, address, name, first_block) VALUES
+ (1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9','Core',24720891), (1,'0x06002e9c4412cb7814a791ea3666d905871e536a','Plus',24720895),
+ (8453,'0xa4d5947eb727a052bae69c593ffc84247ec9864e','Equities',51478826);
+INSERT INTO meta.spokes (chain_id, address, name, kind, oracle, first_block) VALUES
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485','Main','spoke','0x0000000000000000000000000000000000000a01',24721000),
+ (1,'0x973a023a77420ba610f06b3858ad991df6d85a08','Bluechip','spoke','0x0000000000000000000000000000000000000a02',24721000),
+ (1,'0xd8b93635b8c6d0ff98cbe90b5988e3f2d1cd9da1','Forex','spoke','0x0000000000000000000000000000000000000a03',24721000),
+ (1,'0x65407b940966954b23dfa3caa5c0702bb42984dc','Gold','spoke','0x0000000000000000000000000000000000000a04',24721000),
+ (1,'0xb9b0b8616f6bf6841972a52058132be08d723155','Treasury','treasury','',24721000),
+ (1,'0x092508a2eb395cb3861a3fdb65405744d706476f','waCoreUSDC','tokenization','',24721000),
+ (8453,'0x17905db0e4a3514467539956c084180616ae7b8d','','spoke','0x0000000000000000000000000000000000000a05',51479000);
+INSERT INTO meta.tokens (chain_id, address, symbol, name, decimals, canonical, logo) VALUES
+ (1,'0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48','USDC','USD Coin',6,'usdc',''),
+ (1,'0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2','WETH','Wrapped Ether',18,'eth',''),
+ (8453,'0x833589fcd6edb6e08f4c7c32d4f71b54bda02913','USDC','USD Coin',6,'usdc','');
+INSERT INTO meta.assets (chain_id, hub, asset_id, token, decimals, first_block) VALUES
+ (1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',0,'0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',6,24720900),
+ (1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',1,'0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',18,24720900),
+ (8453,'0xa4d5947eb727a052bae69c593ffc84247ec9864e',0,'0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',6,51478900);
+INSERT INTO meta.reserves (chain_id, spoke, reserve_id, hub, asset_id, token, decimals, first_block) VALUES
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485',0,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',0,'0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',6,24721000),
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485',1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',1,'0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',18,24721000);
+
+INSERT INTO core.hub_asset_state (chain_id, hub, asset_id, block_number, block_time, liquidity, swept, added_assets, drawn_owed, premium_owed, deficit_ray, usage, drawn_rate_apr, price, added_usd, owed_usd, liquidity_usd, liquidity_fee, reason, parser_version) VALUES
+ (1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',0,26442600,now()-45, 5615000000000,0, 61915500000000, 55950000000000, 350500000000, 0, 0.910, 0.0512, 1.0, 61915500, 56300500, 5615000, 1500,'event',1),
+ (1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',1,26442598,now()-70, 9120000000000000000000,0, 24300000000000000000000, 15150000000000000000000, 30000000000000000000, 0, 0.624, 0.0231, 3412.5, 82923750, 51801750, 31122000, 1500,'event',1),
+ (8453,'0xa4d5947eb727a052bae69c593ffc84247ec9864e',0,59113900,now()-20, 2100000000000,0, 3500000000000, 1400000000000, 0, 0, 0.400, 0.0310, 1.0, 3500000, 1400000, 2100000, 1000,'heartbeat',1);
+INSERT INTO core.hub_spoke_state (chain_id, hub, asset_id, spoke, block_number, block_time, added_assets, drawn_owed, premium_owed, deficit_ray, add_cap, draw_cap, active, halted, price, added_usd, owed_usd, reason, parser_version) VALUES
+ (1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',0,'0x94e7a5dcbe816e498b89ab752661904e2f56c485',26442600,now()-45, 41200000000000, 27900000000000, 0, 0, 60000000, 30000000, 1,0, 1.0, 41200000, 27900000,'event',1),
+ (1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',0,'0x973a023a77420ba610f06b3858ad991df6d85a08',26442600,now()-45, 18640500000000, 9310000000000, 0, 0, 40000000, 15000000, 1,0, 1.0, 18640500, 9310000,'event',1),
+ (1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',0,'0xd8b93635b8c6d0ff98cbe90b5988e3f2d1cd9da1',26442600,now()-45, 2075000000000, 14200000000000, 0, 0, 10000000, 20000000, 1,1, 1.0, 2075000, 14200000,'event',1),
+ (1,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',0,'0x65407b940966954b23dfa3caa5c0702bb42984dc',26442600,now()-45, 0, 4540000000000, 0, 18400000000000000000000000000000000, 5000000, 36600000, 1,0, 1.0, 0, 4540000,'event',1);
+INSERT INTO core.reserve_state (chain_id, spoke, reserve_id, block_number, block_time, hub, asset_id, supplied_assets, drawn_debt, premium_debt, collateral_risk, paused, frozen, borrowable, collateral_factor, max_liquidation_bonus, liquidation_fee, price, supplied_usd, debt_usd, reason, parser_version) VALUES
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485',0,26442600,now()-45,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',0, 41200000000000, 27900000000000, 120000000000, 500, 0,0,1, 7800, 10500, 1000, 1.0, 41200000, 28020000,'event',1),
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485',1,26442598,now()-70,'0xcca852bc40e560adc3b1cc58ca5b55638ce826c9',1, 9800000000000000000000, 5100000000000000000000, 9000000000000000000, 0, 0,1,0, 8300, 10500, 1000, 3412.5, 33442500, 17434462,'event',1);
+INSERT INTO core.user_account_state (chain_id, spoke, user, block_number, block_time, health_factor, risk_premium, last_risk_premium, collateral_usd, debt_usd, active_collateral_count, borrow_count, reason, parser_version) VALUES
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485','0x7a1f00000000000000000000000000000000c3d0',26442600,now()-45, 0.98, 0.042, 0.042, 4820000, 3910000, 2,1,'tier',1),
+ (1,'0x973a023a77420ba610f06b3858ad991df6d85a08','0x03be0000000000000000000000000000000091aa',26442600,now()-45, 1.03, 0.011, 0.011, 12400000, 11020000, 1,1,'tier',1),
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485','0xd4c20000000000000000000000000000000007f1',26442599,now()-57, 1.07, 0.0035, 0.0030, 2150000, 1840000, 1,2,'tier',1),
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485','0x9e080000000000000000000000000000000004b6',26442580,now()-285, 1.18, 0.0675, 0.0675, 880400, 612000, 3,1,'tier',1),
+ (1,'0x973a023a77420ba610f06b3858ad991df6d85a08','0x2f67000000000000000000000000000000e5d900',26442580,now()-285, 1.34, 0, 0, 31600000, 19750000, 1,1,'tier',1),
+ (1,'0x65407b940966954b23dfa3caa5c0702bb42984dc','0xb81d0000000000000000000000000000002a4400',26442300,now()-3600, 1.62, 0.024, 0.024, 1020000, 540100, 1,1,'heartbeat',1),
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485','0x5555000000000000000000000000000000005555',26442300,now()-3600, inf, 0, 0, 250000, 0, 1,0,'event',1);
+INSERT INTO core.user_reserve_state (chain_id, spoke, user, reserve_id, block_number, block_time, supplied_assets, drawn_debt, premium_debt, is_collateral, is_borrowing, price, supplied_usd, debt_usd, reason, parser_version) VALUES
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485','0x7a1f00000000000000000000000000000000c3d0',1,26442600,now()-45, 1412454212454212454212, 0, 0, 1,0, 3412.5, 4820000, 0,'event',1),
+ (1,'0x94e7a5dcbe816e498b89ab752661904e2f56c485','0x7a1f00000000000000000000000000000000c3d0',0,26442600,now()-45, 0, 3900000000000, 10000000000, 0,1, 1.0, 0, 3910000,'event',1);
+INSERT INTO core.events (chain_id, block_number, block_time, log_index, tx_hash, contract, kind, name, hub, spoke, asset_id, reserve_id, user, caller, amount, shares, token, price, amount_usd, args, parser_version) VALUES
+ (1,26442600,now()-45,14,'0x8c41000000000000000000000000000000000000000000000000000000007e2a','0x94e7a5dcbe816e498b89ab752661904e2f56c485','spoke','Borrow','0xcca852bc40e560adc3b1cc58ca5b55638ce826c9','0x94e7a5dcbe816e498b89ab752661904e2f56c485',0,0,'0x9e080000000000000000000000000000000004b6','0x9e080000000000000000000000000000000004b6',1200000000000,1150000000000,'0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',1.0,1200000,'{"drawnShares":"1150000000000","drawnAmount":"1200000000000"}',1),
+ (1,26442598,now()-70,3,'0x1d9000000000000000000000000000000000000000000000000000000000a3f5','0x94e7a5dcbe816e498b89ab752661904e2f56c485','spoke','LiquidationCall','0xcca852bc40e560adc3b1cc58ca5b55638ce826c9','0x94e7a5dcbe816e498b89ab752661904e2f56c485',0,0,'0x7a1f00000000000000000000000000000000c3d0','0x1111000000000000000000000000000000001111',318400000000,0,'0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',1.0,318400,'{"collateralReserveId":1,"debtReserveId":0}',1),
+ (1,26442590,now()-166,0,'0x5b2e0000000000000000000000000000000000000000000000000000000009cd','0xcca852bc40e560adc3b1cc58ca5b55638ce826c9','hub','UpdateSpokeConfig','0xcca852bc40e560adc3b1cc58ca5b55638ce826c9','0xd8b93635b8c6d0ff98cbe90b5988e3f2d1cd9da1',0,NULL,'','',0,0,'0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',1.0,0,'{"config":{"addCap":10000000,"drawCap":20000000,"active":true,"halted":true}}',1),
+ (1,26442580,now()-285,7,'0xe7a3000000000000000000000000000000000000000000000000000000004410','0x973a023a77420ba610f06b3858ad991df6d85a08','spoke','Supply','0xcca852bc40e560adc3b1cc58ca5b55638ce826c9','0x973a023a77420ba610f06b3858ad991df6d85a08',1,1,'0x2f67000000000000000000000000000000e5d900','0x2f67000000000000000000000000000000e5d900',1391941391941391941391,1380000000000000000000,'0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',3412.5,4750000,'{}',1);

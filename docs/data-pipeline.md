@@ -112,7 +112,8 @@ backfill calls the whole struct getters (`getAsset`, `getSpoke`, `getReserve`, `
 
 ### Backfill order
 
-One pass per chain, from the first block of its earliest Hub. The watch list is the Hubs plus every
+One pass per chain, from its `start_block` in the registry: the block the earliest watched contract
+was deployed in (the Treasury Spoke, a few blocks before the first Hub). The watch list is the Hubs plus every
 Spoke and oracle known at that moment; asking for an address before it existed returns nothing and
 costs nothing.
 
@@ -125,14 +126,14 @@ names and kinds, but the fetcher does not depend on it.
 
 - A Hub announces a Spoke with `AddSpoke(assetId, spoke)`. When a range contains one for an address
   that is not watched, that range is not stored. The fetcher reads the Spoke's `ORACLE()`, fetches
-  the logs of both addresses from the chain's first Hub block up to the cursor (a Spoke is deployed
+  the logs of both addresses from the chain's `start_block` up to the cursor (a Spoke is deployed
   and configured before a Hub announces it), adds them to the watch list and walks the range again.
 - On start the watch list is the Hubs, the seed, and every Spoke named by an `AddSpoke` log already
   in `raw.logs`. Nothing else is persisted.
 - Checked 2026-11-18 on Arc: a run with the seed ignored (`FETCH_NO_SEED=1`) found all 8 Spokes
   and stored the same 56,683 logs, by checksum, as the seeded run.
 
-Not discovered yet: a Spoke's logs from before its chain's first Hub block, interest rate
+Not discovered yet: a later Spoke's logs from before its chain's `start_block`, interest rate
 strategies, access managers and price feeds. Their logs can be fetched later for those addresses
 alone.
 

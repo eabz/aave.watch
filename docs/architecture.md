@@ -23,7 +23,7 @@ Chain RPCs (WebSocket heads + eth_getLogs + multicall), one set per chain
 ```
 
 Nothing on the server listens on a public port. The tunnel is the only way in, and the Worker is the
-only client allowed through it (Cloudflare Access service token on the tunnel hostname).
+only client that can use it (a Workers VPC binding; the tunnel has no public hostname).
 
 ## Repo layout
 
@@ -87,15 +87,31 @@ itself, and it is plain HTTP through the tunnel and the Worker.
 
 ## API Worker (Cloudflare)
 
-- `/v1/*` (not stream): forward to the tunnel hostname, cache GETs at the edge per origin
-  `Cache-Control`, rate limit per IP.
-- `/v1/stream`: pass the SSE response body through. One origin connection per client.
+- `/v1/*` (not stream): forward to the API, cache GETs at the edge per the API's `Cache-Control`.
+- `/v1/stream`: pass the SSE response body through. One connection to the API per client.
 - Everything else: static assets from `apps/web`.
+
+**How the Worker reaches the box.** Through a Cloudflare Tunnel and a Workers VPC service, not a
+public hostname:
+
+| Piece | Name | Id |
+|---|---|---|
+| Tunnel (outbound from the box, `cloudflared` service) | `aave-watch-box` | `82b1dc49-4a33-47ea-8c4f-24aa8a1bd8a8` |
+| VPC service (HTTP to `127.0.0.1:8080` at the tunnel's end) | `aave-watch-api` | `01a1ef52-9070-7be1-880c-da6f8754fb56` |
+| Worker binding | `API` in `apps/worker/wrangler.jsonc` | |
+
+The Worker calls `env.API.fetch("http://127.0.0.1:8080/v1/...")`. No DNS record, no Access policy and
+no secret are involved, and the box keeps no public port for it. The tunnel holds four QUIC
+connections to Cloudflare's Frankfurt data centres, about 6 ms from the box. Both resources live in
+the Cloudflare account that owns the Worker; manage them with `wrangler tunnel` and
+`wrangler vpc service`.
 
 The Worker cannot subscribe to Dragonfly itself. Dragonfly is private and speaks TCP; the Rust API
 does the subscribing and the Worker relays its stream.
 
-`shortcut: one origin connection per SSE client; move fan-out into a Durable Object (one upstream connection, many clients) when concurrent viewers load the server.`
+`shortcut: one API connection per SSE client; move fan-out into a Durable Object (one upstream connection, many clients) when concurrent viewers load the server.`
+
+`shortcut: no rate limit on the Worker; add a per-IP rate-limit binding before the site is announced.`
 
 ## Server
 
@@ -141,8 +157,9 @@ unit file in `infra/systemd/`, `DynamicUser`). Its RPC URLs, which carry the pro
 `/etc/aave-watch/fetch.env` (root only; template in `infra/systemd/fetch.env.example`). It is built
 from `/root/aave.watch-dev`, a copy of the working tree.
 
-Not installed yet: `cloudflared`. Until it is, nothing outside the box reaches the API, and the
-Worker has no `API_ORIGIN`.
+`cloudflared` 2026.11.1 is installed from Cloudflare's apt repo (`pkg.cloudflare.com`) and runs as the
+systemd unit `cloudflared`, connected as the tunnel `aave-watch-box`. It makes outbound connections
+only. Its token is in the unit file; rotate it from the Cloudflare dashboard if the box is rebuilt.
 
 Hardening, applied 2026-11-18:
 

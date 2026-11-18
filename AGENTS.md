@@ -9,6 +9,7 @@ Monitoring and real-time app for Aave v4. Main reader: a risk analyst.
 | [docs/protocol.md](docs/protocol.md) | contract addresses, ABIs, events, view calls |
 | [docs/architecture.md](docs/architecture.md) | repo layout, indexer, API, ClickHouse, Dragonfly, Worker |
 | [docs/data-pipeline.md](docs/data-pipeline.md) | any table, key, stream, migration, indexer stage or price source |
+| [docs/api.md](docs/api.md) | any endpoint, the stream, `crates/api`, `apps/worker`, any fetch in `apps/web` |
 | [docs/dashboard-data.md](docs/dashboard-data.md) | any number shown in the UI, any API endpoint, any query |
 | [docs/branding.md](docs/branding.md) | any UI, colour, font, copy or chart |
 | [docs/visual-identity.html](docs/visual-identity.html) | any component: copy its markup, tokens and states from here |
@@ -33,4 +34,5 @@ gets a row here and a line in the README.
 - UI uses the tokens in `docs/branding.md` only. No Aave logos or proprietary Aave fonts.
 - `docs/branding.md` and `docs/visual-identity.html` change together.
 - Preview the identity page with the `docs` server in `.claude/launch.json`.
-- Status: scaffold only. The crates and apps build and do nothing yet.
+- Status: the fetcher (`indexer fetch`) stores raw logs for all four chains; no processor yet. See
+  "Built so far" in docs/data-pipeline.md.

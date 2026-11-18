@@ -3,10 +3,13 @@
 # (getAssetCount answers). first_block is the block the contract's code first appears
 # (Base: the block of the Hub's first log).
 # settle_tag: the block tag a block must reach before it is written to ClickHouse.
+# start_block: where the fetcher starts. The block the earliest watched contract was deployed in,
+# which is the Treasury Spoke, a few blocks before the first Hub (eth_getCode, 2026-11-18).
 
 [[chain]]
 chain_id = 1
 name = "Ethereum"
+start_block = 24720886
 block_time_ms = 12000
 settle_tag = "finalized" # about 65 blocks, 13 minutes behind the head
 explorer_url = "https://etherscan.io"
@@ -20,6 +23,7 @@ hubs = [
 [[chain]]
 chain_id = 8453
 name = "Base"
+start_block = 51478825
 block_time_ms = 2000
 settle_tag = "safe" # batch posted to Ethereum; about 350 blocks, 12 minutes. "finalized" lags hours.
 explorer_url = "https://basescan.org"
@@ -30,6 +34,7 @@ hubs = [
 [[chain]]
 chain_id = 43114
 name = "Avalanche"
+start_block = 89721364
 block_time_ms = 1500
 settle_tag = "finalized" # a few blocks behind the head; accepted blocks are final
 explorer_url = "https://snowtrace.io"
@@ -40,6 +45,7 @@ hubs = [
 [[chain]]
 chain_id = 5042
 name = "Arc"
+start_block = 18791501
 block_time_ms = 500
 settle_tag = "finalized" # deterministic finality: equal to the head
 explorer_url = "" # Arcscan; URL to confirm
