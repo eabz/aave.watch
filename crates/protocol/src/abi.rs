@@ -12,6 +12,14 @@ pub const ACCESS_MANAGER: &str = include_str!("../abi/access_manager.json");
 pub const CHAINLINK_AGGREGATOR_PROXY: &str = include_str!("../abi/chainlink_aggregator_proxy.json");
 pub const TOPICS_TSV: &str = include_str!("../abi/topics.tsv");
 
+/// topic0 of an event, by contract kind (`hub`, `spoke`, ...) and event name.
+pub fn topic0(contract: &str, event: &str) -> Option<&'static str> {
+    TOPICS_TSV.lines().find_map(|line| {
+        let c: Vec<&str> = line.split('\t').collect();
+        (c.len() == 3 && c[0] == contract && c[2].split('(').next() == Some(event)).then_some(c[1])
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -33,5 +41,7 @@ mod tests {
         assert!(TREASURY_SPOKE.contains("getSuppliedAssets"));
         // topic0 of Borrow on the standard Spoke, as seen in live logs
         assert!(TOPICS_TSV.lines().any(|l| l.starts_with("spoke\t") && l.contains("\tBorrow(")));
+        assert!(topic0("hub", "AddSpoke").is_some_and(|t| t.starts_with("0x") && t.len() == 66));
+        assert_eq!(topic0("hub", "NoSuchEvent"), None);
     }
 }

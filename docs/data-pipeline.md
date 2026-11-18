@@ -11,7 +11,10 @@ around it, [dashboard-data.md](dashboard-data.md) the numbers that come out.
 2. **On-chain only.** No number shown comes from a third-party API. Prices are the ones Aave's own
    oracles report.
 3. **Multi-chain from row one.** `chain_id` is the first key of every table, key and stream.
-4. **One process.** One indexer binary runs every chain and every schedule. No external cron.
+4. **Fetch once.** Only the fetcher talks to a node, and it asks for each log and each call one
+   time. Everything downstream reads what the fetcher stored. One `indexer` binary, two processes
+   (`indexer fetch`, `indexer process`), every chain and every schedule inside them. No external
+   cron.
 5. **Each store does what it is good at.** ClickHouse holds settled history. Dragonfly holds the
    unsettled tip, the latest state and the streams.
 
@@ -53,39 +56,49 @@ and Arc. The gap is served from Dragonfly, where every block lands at once.
 ## Stages
 
 ```
-            ┌──────────────── one indexer process, one task group per chain ───────────────┐
- node  ──▶  │ 1 fetch ──▶ 2 raw ──▶ 3 parse ──▶ 4 enrich ──▶ 5 sinks                       │
-            │   heads        logs       events      USD, token     tip    ──▶ Dragonfly     │
-            │   logs         calls      state       canonical      settled ──▶ ClickHouse   │
-            │   calls        blocks                 asset                                   │
-            │                                                                               │
-            │ scheduler: which views to call at which block (events, heartbeat, risk tiers)  │
-            └───────────────────────────────────────────────────────────────────────────────┘
+            ┌──── indexer fetch ─────┐                  ┌────────── indexer process ──────────┐
+ node  ──▶  │ 1 fetch ──▶ 2 raw      │ ── raw stream ─▶ │ 3 parse ──▶ 4 enrich ──▶ 5 sinks    │
+            │   heads        logs    │    (Dragonfly)   │   events      USD, token   tip     ──▶ Dragonfly
+            │   logs         calls   │ ── raw tables ─▶ │   state       canonical    settled ──▶ ClickHouse
+            │   calls        blocks  │    (ClickHouse)  │               asset                 │
+            │                        │                  │                                     │
+            │ scheduler: which views │                  │ no node access                      │
+            │ to call at which block │                  │                                     │
+            └────────────────────────┘                  └─────────────────────────────────────┘
 ```
 
-1. **Fetch.** New heads over WebSocket; `eth_getLogs` for the watched addresses; view calls through
-   Multicall3 at a fixed block.
+Two processes, one task group per chain in each. The fetcher is the only one with an RPC URL. The
+processor can be stopped, fixed and restarted without dropping a node connection or asking a node
+for anything twice; it resumes from its own cursor over raw.
+
+1. **Fetch.** Logs for the watched addresses and view calls through Multicall3 at a fixed block.
+   How they are fetched depends on how far behind the chain is: see
+   [From backfill to live](#from-backfill-to-live).
 2. **Raw.** The block header, each log (address, topics, data) and each call (target, calldata,
-   returned bytes), exactly as returned.
+   returned bytes), exactly as returned. Settled blocks go to ClickHouse `raw.*`; unsettled blocks
+   go to the Dragonfly stream `raw:{chain_id}` and are copied to ClickHouse when they settle, not
+   fetched again.
 3. **Parse.** Pure function of raw rows and the ABI: a log becomes an event row, a call result
    becomes a state row. No I/O. Versioned (`parser_version`).
 4. **Enrich.** Adds what needs other rows: USD value at that block from the oracle price, the
    token, the canonical asset. Names and logos are *not* written into rows; they are joined at
    read time from dictionaries, so a rename never rewrites history.
-5. **Sinks.** Every block goes to Dragonfly at once, marked unsettled. Once a block is
-   at or below the chain's `settle_tag` it is written to ClickHouse: raw, parsed and enriched in one
-   batch per table, then the cursor.
+5. **Sinks.** An unsettled block goes to Dragonfly at once, marked unsettled. Once the fetcher
+   reports a block settled, the processor writes its parsed and enriched rows to ClickHouse, one
+   batch per table, then its cursor.
 
-### Three ways to run the same code
+### One code path, three sources
 
-| Mode | Source | Writes |
+The processor runs stages 3 to 5 over raw rows and does not care where they came from.
+
+| Processor reads | When | Writes |
 |---|---|---|
-| `live` | node, at the head | Dragonfly tip, then ClickHouse on settle |
-| `backfill` | node, block ranges from each contract's deployment block | ClickHouse only |
-| `reparse` | ClickHouse `raw.*` | ClickHouse `core.*` only. No node. |
+| ClickHouse `raw.*`, from its cursor | the fetcher is `catching_up` | ClickHouse `core.*` |
+| Dragonfly `raw:{chain_id}` | the fetcher is live | Dragonfly tip, then ClickHouse `core.*` on settle |
+| ClickHouse `raw.*`, a chosen range (`reparse`) | a parser bug, a new column, a new enrichment | ClickHouse `core.*` |
 
-Backfill happens once per chain. After that, a parser bug, a new column or a new enrichment is a
-`reparse` of the affected range: drop the `core` partitions, replay raw through stages 3 to 5.
+Backfill happens once per chain. After that, a change to parsing is a `reparse` of the affected
+range: drop the `core` partitions, replay raw through stages 3 to 5. No node is involved.
 
 Not everything in `raw` is parsed. `Transfer` and `Approval` logs of the tokenization Spokes stay in
 `raw.logs` only (decided 2026-11-18): they are vault share moves, not lending activity. Their
@@ -99,14 +112,107 @@ backfill calls the whole struct getters (`getAsset`, `getSpoke`, `getReserve`, `
 
 ### Backfill order
 
-Spokes are discovered from Hub events, so each chain backfills in two passes of one run:
-
-1. Hubs, from their deployment block: learns every asset, every Spoke and the block each was added.
-2. Spokes and their oracles, each from the block it was added.
+One pass per chain, from the first block of its earliest Hub. The watch list is the Hubs plus every
+Spoke and oracle known at that moment; asking for an address before it existed returns nothing and
+costs nothing.
 
 State calls are made at the blocks the scheduler rules below select, as the range is walked.
 
-### Scheduler (inside the indexer)
+### Spoke discovery
+
+The Spoke list is not static. `registry/spokes.toml` is a seed: it saves requests and carries the
+names and kinds, but the fetcher does not depend on it.
+
+- A Hub announces a Spoke with `AddSpoke(assetId, spoke)`. When a range contains one for an address
+  that is not watched, that range is not stored. The fetcher reads the Spoke's `ORACLE()`, fetches
+  the logs of both addresses from the chain's first Hub block up to the cursor (a Spoke is deployed
+  and configured before a Hub announces it), adds them to the watch list and walks the range again.
+- On start the watch list is the Hubs, the seed, and every Spoke named by an `AddSpoke` log already
+  in `raw.logs`. Nothing else is persisted.
+- Checked 2026-11-18 on Arc: a run with the seed ignored (`FETCH_NO_SEED=1`) found all 8 Spokes
+  and stored the same 56,683 logs, by checksum, as the seeded run.
+
+Not discovered yet: a Spoke's logs from before its chain's first Hub block, interest rate
+strategies, access managers and price feeds. Their logs can be fetched later for those addresses
+alone.
+
+### From backfill to live
+
+The fetcher is a state machine per chain with two states. It moves between them by itself, in both
+directions, so the first backfill and a reconnect after an outage are the same code.
+
+| State | Transport | Shape |
+|---|---|---|
+| `catching_up` | HTTP, JSON-RPC batches | several block ranges in parallel, committed in order |
+| `live` | one WebSocket | `eth_subscribe` to `newHeads` and to `logs` for the watch list; calls go over the same socket |
+
+**`catching_up`.** Walk from the raw cursor to the chain's settled block in ranges. One
+`eth_getLogs` per range carries every watched address. The range size adapts: halve it when the
+node refuses the result size, grow it when a range comes back small. Ranges are fetched in parallel
+but written in block order, so the raw cursor always means "every block at or below this is
+complete". When the walk reaches the settled block it reads the tag again and continues; each round
+is shorter than the last.
+
+**The switch.** When the cursor is within one range of the settled block:
+
+1. Open the WebSocket and subscribe. Buffer what arrives; do not process it. Call the first head
+   received `H`.
+2. Fetch `cursor + 1` to `H - 1` over HTTP, the same way as any other range. Blocks at or below the
+   settled block go to ClickHouse `raw.*`; the rest go to `raw:{chain_id}`.
+3. Seed the live schedule: one multicall at `H - 1` reads `getUserAccountData` for every user with
+   debt, which puts each user in a health factor tier. The user list comes from the `core`
+   latest-state tables, so the switch waits until the `core` cursor has reached the `raw` cursor.
+4. Drain the buffer from `H` on. Stop the parallel workers. The state is now `live`.
+
+Subscribing before fetching the last range is what closes the gap: a block is either in the range
+or in the buffer, and a block in both is the same natural key, so the second write is a no-op.
+
+**`live`.** Logs arrive pushed, with no polling. Per block the fetcher sends at most one multicall:
+prices plus whatever the scheduler says is due. Every result is written once to `raw:{chain_id}`.
+The fetcher reads the `settle_tag` block at a slow interval (one small request); for each block now
+at or below it whose hash matches, it copies that block's raw rows from the stream to ClickHouse,
+moves the raw cursor and publishes `settled` on `chain:{chain_id}`.
+
+**Back to `catching_up`.** If the socket drops, or a head arrives that is not the next block, the
+fetcher runs the switch again from step 1. If the gap is larger than one range it runs
+`catching_up` first. Dragonfly losing `raw:{chain_id}` is the same case: the raw cursor in
+ClickHouse is the truth and the gap is refetched.
+
+**The processor follows.** It reads ClickHouse `raw.*` from its own cursor until that cursor meets
+the raw cursor, then switches to reading `raw:{chain_id}`. On its first block from the stream it
+loads the `*_latest` tables into Dragonfly, so the tip starts from full state. If it falls behind
+the stream's retention it goes back to ClickHouse the same way.
+
+**Built so far** (`crates/indexer/src/fetch.rs`, unit `aave-watch-fetch`): `catching_up` for logs,
+on all four chains, with Spoke discovery. It keeps walking as the settle tag advances, so
+`raw.logs` trails each chain by its settle lag. Not built: view calls and the scheduler, the
+WebSocket `live` state, the `raw:{chain_id}` stream, and the processor.
+
+### RPC budget
+
+What a node is asked for, so the cost can be counted in one place:
+
+| Request | `catching_up` | `live` |
+|---|---|---|
+| Logs | one `eth_getLogs` per range, all addresses | none: pushed by the `logs` subscription |
+| Headers | none if the node returns `blockTimestamp` on logs (Ethereum, Base and Arc on QuickNode do; Avalanche does not); else one batched `eth_getBlockByNumber` for blocks that have rows | none: pushed by `newHeads` |
+| State | one Multicall3 `eth_call` per block that had an event, plus the hourly heartbeat | at most one Multicall3 `eth_call` per block |
+| Settled tag | one read per round | one read per interval |
+
+Rules that keep it there: no field getters, only the struct getters above; calls are chunked by
+calldata size, not one per entity; nothing is called twice for the same block unless that block was
+replaced by a reorg; the processor, the API and `reparse` never hold an RPC URL. `catching_up`
+needs an archive node; `live` does not, so the two states may use different endpoints.
+
+Provider limits met so far: public nodes cap a log filter at 10 addresses and refuse old blocks
+(`FETCH_MAX_ADDRESSES` splits the filter, at one request per 10 addresses); QuickNode takes the
+whole watch list and 10,000-block ranges, and counts every item of a batch against a limit of 300
+requests per second.
+
+### Scheduler (inside the fetcher)
+
+The fetcher decodes just enough to plan calls (which entity an event touched, the health factor in
+a result) using the same `crates/protocol` code as the parser. It does not write parsed rows.
 
 | State | Read when |
 |---|---|
@@ -114,10 +220,14 @@ State calls are made at the blocks the scheduler rules below select, as the rang
 | Spoke reserve | the block had an event for it, plus hourly |
 | Oracle prices | every block live (one multicall per chain); during backfill on blocks with events plus hourly |
 | User position | the block had an event for that user |
-| User health factor | by tier: HF < 1.1 every block, < 1.5 every 5 min, the rest hourly |
+| User health factor | `live` only, by tier: HF < 1.1 every block, < 1.5 every 5 min, the rest hourly |
 
-The schedule state (who is due when) lives in a Dragonfly sorted set, so a restart resumes it; it
-can be rebuilt from ClickHouse. Timers are tokio intervals keyed on block numbers, not wall-clock
+Tier reads are not replayed in `catching_up`: the tier depends on the previous reading, so history
+would have to be walked one block at a time on an archive node. Historical health factor exists at
+the blocks where the user had an event.
+
+The schedule state (who is due when) lives in a Dragonfly sorted set, so a restart resumes it; the
+switch to `live` builds it. Timers are tokio intervals keyed on block numbers, not wall-clock
 cron.
 
 Rollups are ClickHouse refreshable materialized views (below). With those two, nothing outside the
@@ -128,18 +238,23 @@ indexer and ClickHouse runs on a schedule.
 Only settled blocks reach ClickHouse, so ClickHouse is never rewritten in normal operation. The
 unsettled tip lives in Dragonfly, where replacing a block is cheap:
 
-1. A new head whose parent hash does not match: find the fork block.
-2. Publish `reorg {from_block}` on `chain:{chain_id}`. Clients drop unsettled items from that block.
-3. Re-fetch from the fork block and publish again.
+1. A new head whose parent hash does not match, or a log pushed with `removed: true`: find the
+   fork block.
+2. Publish `reorg {from_block}` on `chain:{chain_id}` and on `raw:{chain_id}`. The processor and
+   the clients drop unsettled items from that block.
+3. Fetch the replaced blocks (logs and calls) and publish again. This is the one case where a
+   block height is fetched twice.
 
-A settled block whose hash later changes is an incident, not a case to handle: the indexer stops
+A settled block whose hash later changes is an incident, not a case to handle: the fetcher stops
 that chain and logs it. The fix is to delete rows from the fork block up in `raw` and `core` and
 backfill that range. `raw.blocks` keeps hashes so this is detectable.
 
 ### Restart
 
-On start, per chain: read the cursor, delete rows above it in every table (a crash can land between
-a batch and the cursor), then resume from cursor + 1. Unsettled blocks are simply fetched again.
+Each process, per chain: read its cursor and resume from cursor + 1. A crash can land between a
+batch and the cursor, so rows above the cursor may exist; they are written again, and every table
+is a `ReplacingMergeTree` on the natural key, so that is harmless. Nothing is deleted. The fetcher
+always restarts in `catching_up`, which is a short walk when it was `live` a moment ago.
 
 ## Prices
 
@@ -316,7 +431,7 @@ added when a panel needs one, not before.
 | `tokens` | `chain_id, address` | symbol, name, decimals, canonical asset, logo path |
 | `price_sources` | `chain_id, spoke, reserve_id` | feed address, feed kind, decimals, since block |
 | `labels` | `chain_id, address` | label, category |
-| `cursor` | `chain_id, stream` | last settled block and hash, per mode |
+| `cursor` | `chain_id, stream` | last complete settled block and hash. Two streams: `raw` (fetcher) and `core` (processor) |
 | `parser_runs` | `chain_id, parser_version, range` | when a reparse ran and over what |
 
 All `ReplacingMergeTree`. `tokens`, `hubs`, `spokes`, `reserves` and `labels` are also exposed as
@@ -365,6 +480,7 @@ whole. Names are defined once, in `crates/protocol/src/keys.rs`.
 | `state:{chain_id}` | one changed state row: hub asset, hub × spoke, reserve, price | 1 hour |
 | `risk:{chain_id}` | a position crossing a health band, or a liquidation | 1 hour |
 | `chain:{chain_id}` | `head`, `settled`, `reorg` | 1 hour |
+| `raw:{chain_id}` | one unsettled block as fetched: header, logs, call results. Written by the fetcher, read by the processor, not relayed to browsers | 1 hour |
 
 Every entry is one JSON field with the same envelope:
 
@@ -407,7 +523,7 @@ no ClickHouse query on the hot path.
 | Key | Type | Use |
 |---|---|---|
 | `q:{hash}` | string, TTL | cached ClickHouse result for a heavy endpoint |
-| `lock:indexer` | string, TTL | one indexer at a time |
+| `lock:fetcher`, `lock:processor` | string, TTL | one of each at a time |
 
 ## What goes where
 
@@ -464,3 +580,8 @@ every log kept, including events the parser does not know yet. Oracles are in
    for availability. Backfill needs archive state on all four chains.
 3. Whether tier reads below HF 1.1 on every block are affordable on Arc's half-second blocks and
    Base's coming 200ms blocks. Likely answer: read every N blocks there.
+4. Live price reads: every block, or only when a feed logs `AnswerUpdated`. The second removes most
+   live `eth_call`s but needs every price source to be a feed that logs; check against
+   [protocol.md](protocol.md) before choosing.
+5. Whether the chosen provider's `logs` subscription takes the whole watch list in one filter and
+   sends `removed` logs on every chain. If not, `live` falls back to one `eth_getLogs` per head.

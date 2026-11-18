@@ -33,13 +33,13 @@ apps/
   worker/       Cloudflare API Worker (also serves web's build as static assets)
 crates/
   protocol/     deployed ABIs (abi/*.json), Dragonfly key names, shared row and message types
-  indexer/      binary: chain -> ClickHouse + Dragonfly
+  indexer/      binary, two processes: `fetch` (node -> raw) and `process` (raw -> core, tip)
   api/          binary: HTTP + SSE over ClickHouse and Dragonfly
 registry/       chains and Hubs (chains.toml), Spokes with kind and name (spokes.toml)
 infra/
   clickhouse/   numbered .sql migrations and migrate.sh
   dragonfly/    dragonfly.conf
-  systemd/      units for indexer and api (no containers; see Server)
+  systemd/      units for indexer-fetch, indexer-process and api (no containers; see Server)
 docs/
 ```
 
@@ -57,10 +57,12 @@ every push to `main` (root directory `/`, deploy command `pnpm --filter worker r
 The stages, the ClickHouse schema and the Dragonfly keys are specified in
 [data-pipeline.md](data-pipeline.md). In short:
 
-- **Indexer.** One Rust process for every chain (Ethereum, Arc, Avalanche, Base), one task group
-  per chain. `alloy` for RPC and ABI decoding, `clickhouse` and `redis` crates. It owns every
-  schedule; there is no external cron. Three modes share one code path: `live`, `backfill`,
-  `reparse`.
+- **Indexer.** One Rust binary, two processes, each covering every chain (Ethereum, Arc,
+  Avalanche, Base) with one task group per chain. `indexer fetch` is the only process that talks to
+  a node: it stores what the node returned and asks for nothing twice. It catches up over HTTP with
+  parallel ranges, then switches by itself to one WebSocket per chain. `indexer process` parses and
+  enriches what the fetcher stored and never holds an RPC URL. The fetcher speaks plain JSON-RPC (`reqwest`) and stores hex as returned; `alloy` for ABI decoding,
+  `clickhouse` and `redis` crates. The fetcher owns every schedule; there is no external cron.
 - **ClickHouse** holds settled history in three databases: `raw` (what nodes returned), `core`
   (parsed and enriched facts, latest-state tables, rollups) and `meta` (registry, tokens, cursor).
   `core` can be rebuilt from `raw` without a node.
@@ -130,7 +132,17 @@ interface otherwise).
 
 Rust 1.100 is installed with `rustup` for `root` (`/root/.cargo/bin`); upgrade with `rustup update`. The repo is cloned at `/root/aave.watch`.
 
-Not installed yet: `cloudflared`.
+The API runs as the systemd unit `aave-watch-api` (binary `/usr/local/bin/aave-watch-api`, built from
+`/root/aave.watch-api`, a copy of the working tree without `apps/` and `docs/`), on `127.0.0.1:8080`,
+under a systemd dynamic user. Installed 2026-11-18. See [api.md](api.md).
+
+The fetcher runs as the systemd unit `aave-watch-fetch` (binary `/usr/local/bin/aave-watch-indexer fetch`,
+unit file in `infra/systemd/`, `DynamicUser`). Its RPC URLs, which carry the provider key, are in
+`/etc/aave-watch/fetch.env` (root only; template in `infra/systemd/fetch.env.example`). It is built
+from `/root/aave.watch-dev`, a copy of the working tree.
+
+Not installed yet: `cloudflared`. Until it is, nothing outside the box reaches the API, and the
+Worker has no `API_ORIGIN`.
 
 Hardening, applied 2026-11-18:
 

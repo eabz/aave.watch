@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS meta.labels (
   updated_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (chain_id, address);
 
--- stream: live, backfill:hubs, backfill:spokes, reparse
+-- stream: raw (fetcher), core (processor)
 CREATE TABLE IF NOT EXISTS meta.cursor (
   chain_id UInt32,
   stream LowCardinality(String),

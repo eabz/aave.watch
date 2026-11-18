@@ -1,0 +1,18 @@
+# The fetcher: the only process that talks to a node. Spec: docs/data-pipeline.md.
+# Install as /etc/systemd/system/aave-watch-fetch.service.
+[Unit]
+Description=aave.watch fetcher (node to raw)
+After=network-online.target clickhouse-server.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/aave-watch-indexer fetch
+# RPC URLs carry the provider key: root-only file, never in the repo.
+EnvironmentFile=/etc/aave-watch/fetch.env
+# No account to manage: systemd makes a throwaway unprivileged user for the process.
+DynamicUser=yes
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,503 @@
+//! `indexer fetch`: the only process that talks to a node. Spec: docs/data-pipeline.md.
+//!
+//! This version is the `catching_up` state only: it walks settled blocks over HTTP in parallel
+//! ranges, stores every log of the watched contracts in `raw.logs`, and keeps walking as the
+//! settle tag advances. No view calls and no WebSocket tip yet.
+
+use std::collections::{BTreeSet, HashMap};
+use std::env;
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::time::Duration;
+
+use aave_watch_protocol::{abi, registry};
+use anyhow::{Context, Result, anyhow, bail};
+use futures::{StreamExt, stream};
+use serde_json::{Value, json};
+use tokio::time::sleep;
+
+/// Ceiling for the blocks asked of one `eth_getLogs`; the working size adapts below it.
+const MAX_RANGE: u64 = 10_000;
+/// `ORACLE()` on a standard Spoke.
+const ORACLE_SELECTOR: &str = "0x38013f02";
+
+pub async fn run() -> Result<()> {
+    let ch = ClickHouse::new();
+    let mut tasks = tokio::task::JoinSet::new();
+    for chain in registry::chains() {
+        let var = format!("RPC_HTTP_{}", chain.chain_id);
+        match env::var(&var) {
+            Ok(url) => drop(tasks.spawn(run_chain(chain, Rpc::new(url), ch.clone()))),
+            Err(_) => eprintln!("{}: {var} is not set, chain skipped", chain.name),
+        }
+    }
+    // A chain task loops forever; if one ends, stop so systemd restarts the process.
+    match tasks.join_next().await {
+        Some(ended) => ended?,
+        None => bail!("no RPC_HTTP_<chain_id> is set"),
+    }
+}
+
+async fn run_chain(chain: registry::Chain, rpc: Rpc, ch: ClickHouse) -> Result<()> {
+    let add_spoke = abi::topic0("hub", "AddSpoke").context("AddSpoke is not in topics.tsv")?;
+    let first = chain.hubs.iter().map(|h| h.first_block).min().context("chain has no Hub")?;
+    let mut watch = watch_list(&chain, &rpc, &ch, add_spoke).await?;
+    let size = AtomicU64::new(env_u64("FETCH_RANGE", 2_000).clamp(1, MAX_RANGE));
+    // How often to look at the settle tag once caught up.
+    let idle = Duration::from_millis((chain.block_time_ms * 8).clamp(5_000, 120_000));
+    eprintln!("{}: watching {} addresses", chain.name, watch.len());
+    loop {
+        match round(&chain, &rpc, &ch, &mut watch, &size, first, add_spoke).await {
+            Ok(true) => {}
+            Ok(false) => sleep(idle).await,
+            Err(e) => {
+                eprintln!("{}: {e:#}; retrying in {idle:?}", chain.name);
+                sleep(idle).await;
+            }
+        }
+    }
+}
+
+/// Walks from the raw cursor to the settled block. `Ok(false)` when there was nothing to do.
+/// Everything it writes is keyed on the natural key, so a round that fails half way is simply
+/// run again.
+async fn round(
+    chain: &registry::Chain,
+    rpc: &Rpc,
+    ch: &ClickHouse,
+    watch: &mut BTreeSet<String>,
+    size: &AtomicU64,
+    first: u64,
+    add_spoke: &str,
+) -> Result<bool> {
+    let id = chain.chain_id;
+    let start = ch.cursor(id).await?.map_or(first, |c| c + 1);
+    let settled = header(&rpc.call("eth_getBlockByNumber", json!([chain.settle_tag, false])).await?)?;
+    if settled.number < start {
+        return Ok(false);
+    }
+
+    let addresses: Vec<String> = watch.iter().cloned().collect();
+    let mut next = start;
+    let ranges = std::iter::from_fn(|| {
+        (next <= settled.number).then(|| {
+            let from = next;
+            let to = (from + size.load(Relaxed) - 1).min(settled.number);
+            next = to + 1;
+            (from, to)
+        })
+    });
+    // Fetched in parallel, handed back in block order: the cursor only ever moves past a range
+    // when every range before it is stored.
+    let mut fetched = stream::iter(ranges)
+        .map(|(from, to)| {
+            let addresses = &addresses;
+            async move { (from, to, rpc.logs(addresses, from, to, size).await) }
+        })
+        .buffered(env_u64("FETCH_PARALLEL", 4) as usize);
+
+    let (mut stored, mut found) = (0usize, Vec::new());
+    while let Some((_, to, logs)) = fetched.next().await {
+        found = new_spokes(&logs, add_spoke, watch);
+        if !found.is_empty() {
+            break; // this range is not stored; it is fetched again with the new addresses
+        }
+        stored += store(id, rpc, ch, &logs).await?;
+        let hash = if to == settled.number { settled.hash.as_str() } else { "" };
+        ch.insert(
+            "meta.cursor",
+            &[json!({"chain_id": id, "stream": "raw", "block_number": to, "block_hash": hash})],
+        )
+        .await?;
+        // Creep back up after a node made us shrink.
+        size.store((size.load(Relaxed) * 11 / 10 + 1).min(MAX_RANGE), Relaxed);
+    }
+    drop(fetched);
+
+    for spoke in found {
+        let mut new = vec![spoke];
+        new.extend(rpc.oracle(&new[0]).await);
+        // A Spoke is deployed and configured before a Hub announces it. Fetch that history for
+        // it alone, back to the chain's first Hub block, before the walk goes on. Rare, and one
+        // request per MAX_RANGE blocks.
+        let upto = ch.cursor(id).await?.unwrap_or(0);
+        let (lookback, mut from, mut earlier) = (AtomicU64::new(MAX_RANGE), first, 0);
+        while from <= upto {
+            let to = (from + lookback.load(Relaxed) - 1).min(upto);
+            earlier += store(id, rpc, ch, &rpc.logs(&new, from, to, &lookback).await).await?;
+            from = to + 1;
+        }
+        eprintln!("{}: new Spoke {}, {earlier} earlier logs stored", chain.name, new[0]);
+        watch.extend(new);
+    }
+    if stored > 0 || settled.number - start >= 1_000 {
+        let at = ch.cursor(id).await?.unwrap_or(0);
+        eprintln!("{}: {stored} logs stored, raw cursor at {at} (settled {})", chain.name, settled.number);
+    }
+    Ok(true)
+}
+
+/// Writes logs to `raw.logs` (and the headers fetched for them to `raw.blocks`). Returns how many.
+async fn store(chain_id: u32, rpc: &Rpc, ch: &ClickHouse, logs: &[Value]) -> Result<usize> {
+    let (times, headers) = rpc.block_times(logs).await?;
+    let rows = logs
+        .iter()
+        .map(|l| {
+            let number = hex_u64(&l["blockNumber"])?;
+            log_row(chain_id, l, *times.get(&number).context("log without a block time")?)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    ch.insert("raw.logs", &rows).await?;
+    ch.insert("raw.blocks", &headers.iter().map(|h| h.row(chain_id)).collect::<Vec<_>>()).await?;
+    Ok(rows.len())
+}
+
+/// Hubs, plus every Spoke a Hub has announced. `registry/spokes.toml` is a seed, not the list:
+/// its Spokes are watched from the first block so their history costs no extra request, and any
+/// Spoke missing from it is found from `AddSpoke` logs (in `raw.logs` at start, in the walk after).
+async fn watch_list(
+    chain: &registry::Chain,
+    rpc: &Rpc,
+    ch: &ClickHouse,
+    add_spoke: &str,
+) -> Result<BTreeSet<String>> {
+    let mut watch: BTreeSet<String> = chain.hubs.iter().map(|h| h.address.to_lowercase()).collect();
+    // FETCH_NO_SEED=1 ignores the seed, so every Spoke has to be discovered. For testing discovery.
+    let seed = if env_u64("FETCH_NO_SEED", 0) == 1 { Vec::new() } else { registry::spokes() };
+    for s in seed.into_iter().filter(|s| s.chain_id == chain.chain_id) {
+        watch.insert(s.address.to_lowercase());
+        watch.extend(s.oracle.map(|o| o.to_lowercase()));
+    }
+    // raw.logs remembers the Spokes added after the registry file was written.
+    let sql = format!(
+        "SELECT DISTINCT topic2 FROM raw.logs WHERE chain_id = {} AND topic0 = '{add_spoke}' FORMAT TSV",
+        chain.chain_id
+    );
+    for topic in ch.query(&sql, String::new()).await?.lines() {
+        let spoke = topic_address(topic);
+        if !watch.contains(&spoke) {
+            watch.extend(rpc.oracle(&spoke).await);
+            watch.insert(spoke);
+        }
+    }
+    Ok(watch)
+}
+
+/// Spokes named by `AddSpoke(assetId, spoke)` logs that are not watched yet.
+fn new_spokes(logs: &[Value], add_spoke: &str, watch: &BTreeSet<String>) -> Vec<String> {
+    let found: BTreeSet<String> = logs
+        .iter()
+        .filter(|l| l["topics"][0].as_str().is_some_and(|t| t.eq_ignore_ascii_case(add_spoke)))
+        .filter_map(|l| l["topics"][2].as_str().map(topic_address))
+        .filter(|spoke| !watch.contains(spoke))
+        .collect();
+    found.into_iter().collect()
+}
+
+/// The address in a 32-byte topic or call result.
+fn topic_address(word: &str) -> String {
+    format!("0x{}", &word[word.len().saturating_sub(40)..]).to_lowercase()
+}
+
+/// A `raw.logs` row: the log as the node returned it, hex lowercased.
+fn log_row(chain_id: u32, log: &Value, block_time: u64) -> Result<Value> {
+    let text = |key: &str| {
+        log[key].as_str().map(str::to_lowercase).with_context(|| format!("log without {key}"))
+    };
+    let topic = |i: usize| log["topics"][i].as_str().unwrap_or("").to_lowercase();
+    Ok(json!({
+        "chain_id": chain_id,
+        "block_number": hex_u64(&log["blockNumber"])?,
+        "block_time": block_time,
+        "block_hash": text("blockHash")?,
+        "tx_hash": text("transactionHash")?,
+        "tx_index": hex_u64(&log["transactionIndex"])?,
+        "log_index": hex_u64(&log["logIndex"])?,
+        "address": text("address")?,
+        "topic0": topic(0),
+        "topic1": topic(1),
+        "topic2": topic(2),
+        "topic3": topic(3),
+        "data": text("data")?,
+    }))
+}
+
+struct Header {
+    number: u64,
+    hash: String,
+    parent_hash: String,
+    time: u64,
+}
+
+impl Header {
+    fn row(&self, chain_id: u32) -> Value {
+        json!({"chain_id": chain_id, "number": self.number, "hash": self.hash,
+               "parent_hash": self.parent_hash, "block_time": self.time})
+    }
+}
+
+fn header(block: &Value) -> Result<Header> {
+    let text = |key: &str| {
+        block[key].as_str().map(str::to_lowercase).with_context(|| format!("block without {key}"))
+    };
+    Ok(Header {
+        number: hex_u64(&block["number"])?,
+        hash: text("hash")?,
+        parent_hash: text("parentHash")?,
+        time: hex_u64(&block["timestamp"])?,
+    })
+}
+
+fn hex_u64(v: &Value) -> Result<u64> {
+    let s = v.as_str().with_context(|| format!("expected a hex quantity, got {v}"))?;
+    u64::from_str_radix(s.trim_start_matches("0x"), 16).with_context(|| format!("bad quantity {s}"))
+}
+
+fn env_u64(name: &str, default: u64) -> u64 {
+    env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+fn short(e: impl std::fmt::Display) -> String {
+    e.to_string().chars().take(200).collect()
+}
+
+#[derive(Clone)]
+struct Rpc {
+    http: reqwest::Client,
+    url: String,
+}
+
+impl Rpc {
+    fn new(url: String) -> Self {
+        let http = reqwest::Client::builder().timeout(Duration::from_secs(60)).build().expect("http client");
+        Self { http, url }
+    }
+
+    /// Sends one request or one batch. Retries what a retry can fix (transport, 429, 5xx) a few
+    /// times; any other failure goes back to the caller, who may ask for less.
+    async fn post(&self, body: &Value) -> Result<Value> {
+        let mut wait = Duration::from_millis(500);
+        for _ in 0..5 {
+            let why = match self.http.post(&self.url).json(body).send().await {
+                Ok(r) if r.status().is_success() => return Ok(r.json().await?),
+                Ok(r) if r.status().as_u16() == 429 || r.status().is_server_error() => r.status().to_string(),
+                Ok(r) => bail!("http {}: {}", r.status(), short(r.text().await.unwrap_or_default())),
+                Err(e) => short(e),
+            };
+            eprintln!("rpc: {why}; retrying in {wait:?}");
+            sleep(wait).await;
+            wait *= 2;
+        }
+        bail!("rpc: gave up after 5 attempts")
+    }
+
+    async fn call(&self, method: &str, params: Value) -> Result<Value> {
+        let reply = self.post(&json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})).await?;
+        if let Some(e) = reply.get("error") {
+            bail!("{method}: {}", short(e));
+        }
+        reply.get("result").filter(|r| !r.is_null()).cloned().ok_or_else(|| anyhow!("{method}: no result"))
+    }
+
+    /// Every log of `addresses` in `[from, to]`, in block order. When the node refuses a range it
+    /// is halved, and `size` is lowered so the ranges that follow start smaller. A single block
+    /// that keeps failing is retried until it answers: skipping it would leave a hole.
+    async fn logs(&self, addresses: &[String], from: u64, to: u64, size: &AtomicU64) -> Vec<Value> {
+        let mut out = Vec::new();
+        let mut todo = vec![(from, to)];
+        let mut wait = Duration::from_secs(1);
+        while let Some((a, b)) = todo.pop() {
+            let reply = self.logs_once(addresses, a, b).await;
+            match reply {
+                Ok(logs) => out.extend(logs),
+                Err(e) if a == b => {
+                    eprintln!("rpc: block {a}: {}; retrying in {wait:?}", short(e));
+                    sleep(wait).await;
+                    wait = (wait * 2).min(Duration::from_secs(60));
+                    todo.push((a, b));
+                }
+                Err(e) => {
+                    if (a, b) == (from, to) {
+                        eprintln!("rpc: blocks {a} to {b} refused ({}); asking for less", short(e));
+                    }
+                    let mid = a + (b - a) / 2;
+                    todo.push((mid + 1, b));
+                    todo.push((a, mid)); // popped first: block order is kept
+                    size.store(((b - a + 1) / 2).max(1), Relaxed);
+                }
+            }
+        }
+        out
+    }
+
+    /// One range, one `eth_getLogs` per `FETCH_MAX_ADDRESSES` addresses (0, the default: a single
+    /// request for all of them). Public nodes cap the filter at about 10 addresses; a paid
+    /// endpoint with no cap costs one request per range.
+    async fn logs_once(&self, addresses: &[String], from: u64, to: u64) -> Result<Vec<Value>> {
+        let per_request = match env_u64("FETCH_MAX_ADDRESSES", 0) {
+            0 => addresses.len().max(1),
+            n => n as usize,
+        };
+        let mut out = Vec::new();
+        for chunk in addresses.chunks(per_request) {
+            let filter = json!([{"address": chunk, "fromBlock": format!("0x{from:x}"), "toBlock": format!("0x{to:x}")}]);
+            match self.call("eth_getLogs", filter).await? {
+                Value::Array(logs) => out.extend(logs),
+                other => bail!("eth_getLogs returned {}", short(other)),
+            }
+        }
+        if addresses.len() > per_request {
+            // several requests: put the logs back in chain order
+            let mut keyed = out
+                .into_iter()
+                .map(|l| Ok(((hex_u64(&l["blockNumber"])?, hex_u64(&l["logIndex"])?), l)))
+                .collect::<Result<Vec<_>>>()?;
+            keyed.sort_by_key(|(key, _)| *key);
+            out = keyed.into_iter().map(|(_, l)| l).collect();
+        }
+        Ok(out)
+    }
+
+    /// Block time for every block that has a log. Free when the node puts `blockTimestamp` on the
+    /// log; otherwise one batched header request, and those headers go to `raw.blocks`.
+    async fn block_times(&self, logs: &[Value]) -> Result<(HashMap<u64, u64>, Vec<Header>)> {
+        let mut times = HashMap::new();
+        let mut missing = BTreeSet::new();
+        for log in logs {
+            let number = hex_u64(&log["blockNumber"])?;
+            match log.get("blockTimestamp").filter(|t| t.is_string()) {
+                Some(t) => drop(times.insert(number, hex_u64(t)?)),
+                None => drop(missing.insert(number)),
+            }
+        }
+        let mut headers = Vec::new();
+        let missing: Vec<u64> = missing.into_iter().filter(|n| !times.contains_key(n)).collect();
+        // shortcut: assumes the node accepts JSON-RPC batches; add a one-by-one fallback if a
+        // provider turns out not to.
+        for chunk in missing.chunks(50) {
+            let batch: Vec<Value> = chunk
+                .iter()
+                .map(|n| json!({"jsonrpc": "2.0", "id": n, "method": "eth_getBlockByNumber", "params": [format!("0x{n:x}"), false]}))
+                .collect();
+            let batch = Value::Array(batch);
+            let mut wait = Duration::from_millis(500);
+            // Each item counts against the provider's rate limit, and a limited item fails alone.
+            // Ask for the batch again rather than fail the round and fetch its logs twice.
+            let found = loop {
+                let reply = self.post(&batch).await?;
+                let items = reply.as_array().context("batch reply is not an array")?;
+                match items.iter().map(|i| header(&i["result"])).collect::<Result<Vec<_>>>() {
+                    Ok(found) if found.len() == chunk.len() => break found,
+                    _ if wait > Duration::from_secs(30) => bail!("headers: {}", short(&reply)),
+                    _ => {
+                        sleep(wait).await;
+                        wait *= 2;
+                    }
+                }
+            };
+            for h in found {
+                times.insert(h.number, h.time);
+                headers.push(h);
+            }
+        }
+        Ok((times, headers))
+    }
+
+    /// A standard Spoke's oracle; `None` for the kinds that have none.
+    async fn oracle(&self, spoke: &str) -> Option<String> {
+        let reply = self.call("eth_call", json!([{"to": spoke, "data": ORACLE_SELECTOR}, "latest"])).await.ok()?;
+        let word = reply.as_str().filter(|w| w.len() == 66)?;
+        let oracle = topic_address(word);
+        (oracle != format!("0x{}", "0".repeat(40))).then_some(oracle)
+    }
+}
+
+/// ClickHouse over its HTTP interface. Inserts are JSONEachRow and acknowledged when written.
+#[derive(Clone)]
+struct ClickHouse {
+    http: reqwest::Client,
+    url: String,
+}
+
+impl ClickHouse {
+    fn new() -> Self {
+        let url = env::var("CLICKHOUSE_URL").unwrap_or_else(|_| "http://127.0.0.1:8123".into());
+        Self { http: reqwest::Client::new(), url }
+    }
+
+    async fn query(&self, sql: &str, body: String) -> Result<String> {
+        // A query with no data goes in the body: ClickHouse refuses a POST with an empty one.
+        let request = match body.is_empty() {
+            true => self.http.post(&self.url).body(sql.to_string()),
+            false => self.http.post(&self.url).query(&[("query", sql)]).body(body),
+        };
+        let reply = request.send().await?;
+        let ok = reply.status().is_success();
+        let text = reply.text().await?;
+        if !ok {
+            bail!("clickhouse: {}", short(text.trim()));
+        }
+        Ok(text)
+    }
+
+    async fn insert(&self, table: &str, rows: &[Value]) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let body = rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+        self.query(&format!("INSERT INTO {table} FORMAT JSONEachRow"), body).await.map(drop)
+    }
+
+    /// Last block whose logs are all stored, if the chain has been started.
+    async fn cursor(&self, chain_id: u32) -> Result<Option<u64>> {
+        // max(): the cursor only moves forward, and two writes can share a timestamp.
+        let sql = format!(
+            "SELECT max(block_number), count() FROM meta.cursor WHERE chain_id = {chain_id} AND stream = 'raw' FORMAT TSV"
+        );
+        let text = self.query(&sql, String::new()).await?;
+        let mut cols = text.split_whitespace();
+        let (max, count) = (cols.next().context("cursor query")?, cols.next().context("cursor query")?);
+        Ok((count != "0").then(|| max.parse()).transpose()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn log(topic0: &str, spoke_topic: &str) -> Value {
+        json!({
+            "address": "0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9",
+            "topics": [topic0, "0x0000000000000000000000000000000000000000000000000000000000000003", spoke_topic],
+            "data": "0x",
+            "blockNumber": "0x1793a9b",
+            "blockHash": "0xAB",
+            "transactionHash": "0xCD",
+            "transactionIndex": "0x2",
+            "logIndex": "0x1f"
+        })
+    }
+
+    #[test]
+    fn a_log_becomes_a_lowercase_row() {
+        let row = log_row(1, &log("0xAA", "0xBB"), 1_800_000_000).unwrap();
+        assert_eq!(row["block_number"], 24_722_075);
+        assert_eq!(row["log_index"], 31);
+        assert_eq!(row["address"], "0xcca852bc40e560adc3b1cc58ca5b55638ce826c9");
+        assert_eq!(row["topic0"], "0xaa");
+        assert_eq!(row["topic3"], ""); // absent topics are empty, not missing
+        assert_eq!(row["block_time"], 1_800_000_000u64);
+        // a log the node truncated is an error, never a silent empty row
+        assert!(log_row(1, &json!({"topics": []}), 0).is_err());
+    }
+
+    #[test]
+    fn add_spoke_logs_name_spokes_not_yet_watched() {
+        let add_spoke = abi::topic0("hub", "AddSpoke").unwrap();
+        let known = "0x000000000000000000000000092508a2Eb395cb3861a3fdB65405744d706476f";
+        let new = "0x0000000000000000000000001111111111111111111111111111111111111111";
+        let logs = [log(add_spoke, known), log(add_spoke, new), log(add_spoke, new), log("0xother", new)];
+        let watch: BTreeSet<String> = ["0x092508a2eb395cb3861a3fdb65405744d706476f".to_string()].into();
+        assert_eq!(new_spokes(&logs, add_spoke, &watch), ["0x1111111111111111111111111111111111111111"]);
+        assert!(new_spokes(&logs[..1], add_spoke, &watch).is_empty());
+    }
+}
