@@ -5,6 +5,12 @@
 	"compatibility_date": "2026-11-17",
 	"observability": { "enabled": true },
 	"upload_source_maps": true,
+	// Custom domains only; without this every deploy turns the workers.dev URL back on.
+	"workers_dev": false,
+	"routes": [
+		{ "pattern": "aave.watch", "custom_domain": true },
+		{ "pattern": "www.aave.watch", "custom_domain": true }
+	],
 	// The web build is served from this Worker; /v1/* goes to the code in src/.
 	"assets": {
 		"directory": "../web/dist",
