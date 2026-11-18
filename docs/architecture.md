@@ -3,7 +3,7 @@
 ## Flow
 
 ```
-Ethereum RPC (WebSocket heads + eth_getLogs + multicall)
+Chain RPCs (WebSocket heads + eth_getLogs + multicall), one set per chain
         │
         ▼
   indexer (Rust) ───── insert ─────▶ ClickHouse
@@ -32,11 +32,13 @@ apps/
   web/          Vite + React dashboard
   worker/       Cloudflare API Worker (also serves web's build as static assets)
 crates/
-  protocol/     ABIs (alloy sol!), addresses, shared row and message types
+  protocol/     deployed ABIs (abi/*.json), Dragonfly key names, shared row and message types
   indexer/      binary: chain -> ClickHouse + Dragonfly
   api/          binary: HTTP + SSE over ClickHouse and Dragonfly
+registry/       chains and Hubs (chains.toml), Spokes with kind and name (spokes.toml)
 infra/
-  clickhouse/   numbered .sql migrations
+  clickhouse/   numbered .sql migrations and migrate.sh
+  dragonfly/    dragonfly.conf
   systemd/      units for indexer and api (no containers; see Server)
 docs/
 ```
@@ -47,84 +49,26 @@ Turborepo, no Nx.
 Serving the web build from the same Worker keeps one origin: no CORS, one deploy.
 
 Deploy: `pnpm --filter worker run deploy` builds `apps/web`, then uploads the Worker and the assets.
-Live at https://aave-watch.kindynos.workers.dev. Cloudflare Workers Builds runs the same command on
+Live at https://aave.watch (and `www`; the workers.dev URL is off). Cloudflare Workers Builds runs the same command on
 every push to `main` (root directory `/`, deploy command `pnpm --filter worker run deploy`).
 
-## Indexer
+## Indexer, ClickHouse, Dragonfly
 
-One process per chain. Rust with `alloy` (RPC, ABI decoding), `clickhouse` and `redis` crates.
+The stages, the ClickHouse schema and the Dragonfly keys are specified in
+[data-pipeline.md](data-pipeline.md). In short:
 
-**Registry.** Starts from the seed list in [protocol.md](protocol.md), then follows `Hub.AddAsset`,
-`Hub.AddSpoke` and `Spoke.AddReserve` to learn every asset, Spoke and reserve. A Spoke it has not
-seen before is added to the log filter from that block on.
-
-**Events.** Backfill with `eth_getLogs` over block ranges from the deployment block. Live: on each
-new head, one `eth_getLogs` for all Hub and Spoke addresses, decode, batch insert, publish.
-
-**State.** Read from contract views with multicall at a fixed block, never rebuilt from events.
-What triggers a read:
-
-| State | Read when |
-|---|---|
-| Hub asset, Hub asset × Spoke | the block had an event for that asset, plus every hour |
-| Spoke reserve | the block had an event for that reserve, plus every hour |
-| Oracle prices | every block (one multicall per Spoke oracle), stored only on change |
-| User position | the block had an event for that user |
-| User health factor | on a schedule by risk: HF < 1.1 every block, < 1.5 every 5 min, rest hourly |
-
-The hourly read exists because interest accrues between events.
-
-**Reorgs.** The indexer follows `latest` and keeps the hash of each block it processed. If a new
-head's parent hash does not match, it deletes rows from the fork block up (ClickHouse lightweight
-`DELETE`), re-indexes, and publishes a `reorg` message so clients drop those events. Rare and
-shallow on Ethereum, so the cost of a delete is acceptable.
-
-**Cursor.** Last processed block and hash are stored in ClickHouse, so a restart resumes and
-re-inserts are safe (tables dedupe on their key).
-
-## ClickHouse
-
-One server instance. Tables, all keyed by `chain_id` first:
-
-| Table | Engine | One row is |
-|---|---|---|
-| `events` | ReplacingMergeTree, order `(chain_id, block_number, log_index)` | one decoded log: common columns (`contract`, `kind`, `name`, `hub`, `spoke`, `asset_id`, `reserve_id`, `user`, `caller`, `amount`, `shares`, `amount_usd`) plus the full args as JSON |
-| `hub_asset_state` | MergeTree, order `(chain_id, hub, asset_id, block_number)` | one read of a Hub asset |
-| `hub_spoke_state` | MergeTree, order `(chain_id, hub, asset_id, spoke, block_number)` | one read of a Spoke's line on a Hub asset |
-| `reserve_state` | MergeTree, order `(chain_id, spoke, reserve_id, block_number)` | one read of a Spoke reserve |
-| `prices` | MergeTree, order `(chain_id, spoke, reserve_id, block_number)` | one price change |
-| `user_reserve_state` | MergeTree, order `(chain_id, spoke, user, reserve_id, block_number)` | one read of a user's position in one reserve |
-| `user_account_state` | MergeTree, order `(chain_id, spoke, user, block_number)` | one read of `getUserAccountData` |
-| `registry_*` | ReplacingMergeTree | hubs, spokes, assets, reserves, tokens |
-| `cursor` | ReplacingMergeTree | last indexed block per chain |
-
-One wide `events` table instead of one table per event: 40 event types, same queries (filter by
-type, hub, spoke, user, time). Charts read from materialized views (hourly and daily rollups), added
-when a chart needs one.
-
-Amounts are stored raw (`UInt256`) and as USD (`Float64`) priced at the event's block.
-
-## Dragonfly
-
-Two uses.
-
-**Latest state** (plain keys, written by the indexer): `hub:{addr}:asset:{id}`,
-`spoke:{addr}:reserve:{id}`, `price:{spoke}:{reserveId}`, `head`. The API serves "current" numbers
-from here without touching ClickHouse.
-
-**Real-time topics.** Capped streams (`XADD ... MAXLEN ~`), not plain pub/sub:
-
-| Stream | Messages |
-|---|---|
-| `feed` | every decoded event, with USD amount |
-| `state` | changed Hub asset, reserve and price rows |
-| `chain` | new head, reorg |
-
-Why streams: plain pub/sub drops whatever is published while a client is disconnected. A stream has
-ids, so a client that reconnects sends its last id and gets what it missed. Same server, same
-commands family, no extra moving part.
-
-**Query cache.** The API caches ClickHouse results for heavy endpoints here with a short TTL.
+- **Indexer.** One Rust process for every chain (Ethereum, Arc, Avalanche, Base), one task group
+  per chain. `alloy` for RPC and ABI decoding, `clickhouse` and `redis` crates. It owns every
+  schedule; there is no external cron. Three modes share one code path: `live`, `backfill`,
+  `reparse`.
+- **ClickHouse** holds settled history in three databases: `raw` (what nodes returned), `core`
+  (parsed and enriched facts, latest-state tables, rollups) and `meta` (registry, tokens, cursor).
+  `core` can be rebuilt from `raw` without a node.
+- **Dragonfly** holds the unsettled tip, the latest state per entity, sorted sets for the live risk
+  view, and capped streams (`feed`, `state`, `risk`, `chain`, one set per chain) that the API
+  relays to browsers.
+- **Reorgs** never touch ClickHouse in normal operation: a block is written there only once it is
+  at or below its chain's `settle_tag` (`finalized`, or `safe` on Base).
 
 ## API (Rust)
 
@@ -132,7 +76,7 @@ commands family, no extra moving part.
 
 - `GET /v1/...` JSON endpoints, one per dashboard panel (see [dashboard-data.md](dashboard-data.md)).
   Each response sets `Cache-Control` so the Worker can cache it at the edge.
-- `GET /v1/stream?topics=feed,state&hub=...&spoke=...&min_usd=...` Server-Sent Events. One reader
+- `GET /v1/stream?chain=1&topics=feed,state,risk&hub=...&spoke=...&min_usd=...` Server-Sent Events. One reader
   task per stream fans messages out in-process to connected clients; filters are applied per
   client. `Last-Event-ID` resumes from the stream.
 
@@ -206,7 +150,6 @@ Still to do:
 ## Not in this version
 
 - Alerts (Telegram, Discord, email). Later: a third Rust binary that reads the same streams.
-- Avalanche. The code is keyed by chain id; adding a chain is config plus a second indexer process.
 - Auth, API keys, user accounts.
 
 ## Open decisions

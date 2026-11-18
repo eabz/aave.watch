@@ -1,0 +1,48 @@
+# Chains and seed Hubs. Spokes, assets and reserves are discovered on chain from the Hubs.
+# Hub addresses: DefiLlama-Adapters projects/aave-v4/index.js, each checked on chain 2026-11-18
+# (getAssetCount answers). first_block is the block the contract's code first appears
+# (Base: the block of the Hub's first log).
+# settle_tag: the block tag a block must reach before it is written to ClickHouse.
+
+[[chain]]
+chain_id = 1
+name = "Ethereum"
+block_time_ms = 12000
+settle_tag = "finalized" # about 65 blocks, 13 minutes behind the head
+explorer_url = "https://etherscan.io"
+hubs = [
+  { name = "Core", address = "0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9", first_block = 24720891 },
+  { name = "Plus", address = "0x06002e9c4412CB7814a791eA3666D905871E536A", first_block = 24720895 },
+  { name = "Prime", address = "0x943827DCA022D0F354a8a8c332dA1e5Eb9f9F931", first_block = 24720887 },
+  { name = "Global Dollar", address = "0x62d63197660c080236193CA60b70E49A08E90368", first_block = 25318132 },
+]
+
+[[chain]]
+chain_id = 8453
+name = "Base"
+block_time_ms = 2000
+settle_tag = "safe" # batch posted to Ethereum; about 350 blocks, 12 minutes. "finalized" lags hours.
+explorer_url = "https://basescan.org"
+hubs = [
+  { name = "Equities", address = "0xa4d5947Eb727A052bae69C593FfC84247EC9864E", first_block = 51478826 },
+]
+
+[[chain]]
+chain_id = 43114
+name = "Avalanche"
+block_time_ms = 1500
+settle_tag = "finalized" # a few blocks behind the head; accepted blocks are final
+explorer_url = "https://snowtrace.io"
+hubs = [
+  { name = "Core", address = "0xd07369fAE4A5BB13c9Ce446B052c7867B1AbDf6e", first_block = 89721368 },
+]
+
+[[chain]]
+chain_id = 5042
+name = "Arc"
+block_time_ms = 500
+settle_tag = "finalized" # deterministic finality: equal to the head
+explorer_url = "" # Arcscan; URL to confirm
+hubs = [
+  { name = "Core", address = "0x17288dfc86205301064577b98B02b81017e6F79C", first_block = 18791506 },
+]

@@ -36,7 +36,7 @@ contract views at a block; activity comes from events.
 ## Capabilities and Constraints
 
 - Read-only. No wallet connection, no transactions, no accounts.
-- Ethereum mainnet first. Other chains later.
+- Multi-chain from the start: Ethereum, Arc, Avalanche and Base.
 - Alerts are not in the first version.
 - Protocol terms keep the protocol's spelling: Hub, Spoke, reserve, drawn, premium, deficit.
 - Undecided: risk thresholds, one USD price per Hub asset, history depth.

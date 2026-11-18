@@ -6,7 +6,7 @@ from the interfaces at that commit. Re-check them when the repo moves.
 
 ## Model in one page
 
-- **Hub**: immutable contract that holds the liquidity. It lists **assets** (`assetId`, sequential
+- **Hub**: contract that holds the liquidity (deployed behind a proxy, see "ABIs"). It lists **assets** (`assetId`, sequential
   from 0), sets the interest rate per asset, and gives each connected Spoke an add cap and a draw cap.
 - **Spoke**: upgradeable contract users talk to. It lists **reserves** (`reserveId`), each one pointing
   at a `(hub, assetId)`. Risk settings, oracle and liquidation rules are per Spoke. One Spoke can use
@@ -26,14 +26,25 @@ from the interfaces at that commit. Re-check them when the repo moves.
 
 ## Deployments
 
-Ethereum mainnet (chain 1), from the docs. Checked on chain on 2026-11-18: each Hub answers
-`getAssetCount()`, the Main Spoke answers `getReserveCount()`.
+Hubs on all four chains, from DefiLlama's adapter (`DefiLlama-Adapters/projects/aave-v4/index.js`).
+Each was checked on chain on 2026-11-18: it answers `getAssetCount()`. The machine-readable copy is
+[registry/chains.toml](../registry/chains.toml).
 
-| Hub | Address | Assets |
-|---|---|---|
-| Core | `0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9` | 18 |
-| Plus | `0x06002e9c4412CB7814a791eA3666D905871E536A` | 7 |
-| Prime | `0x943827DCA022D0F354a8a8c332dA1e5Eb9f9F931` | 7 |
+| Chain | Hub | Address | Assets | First block |
+|---|---|---|---|---|
+| Ethereum (1) | Core | `0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9` | 18 | 24,720,891 |
+| Ethereum (1) | Plus | `0x06002e9c4412CB7814a791eA3666D905871E536A` | 7 | 24,720,895 |
+| Ethereum (1) | Prime | `0x943827DCA022D0F354a8a8c332dA1e5Eb9f9F931` | 7 | 24,720,887 |
+| Ethereum (1) | Global Dollar | `0x62d63197660c080236193CA60b70E49A08E90368` | 7 | 25,318,132 |
+| Base (8453) | Equities | `0xa4d5947Eb727A052bae69C593FfC84247EC9864E` | 9 | 51,478,826 |
+| Avalanche (43114) | Core | `0xd07369fAE4A5BB13c9Ce446B052c7867B1AbDf6e` | 8 | 89,721,368 |
+| Arc (5042) | Core | `0x17288dfc86205301064577b98B02b81017e6F79C` | 5 | 18,791,506 |
+
+Spokes are read from the Hubs (`getSpokeCount`, `getSpokeAddress` per asset), not listed by hand:
+55 on Ethereum, 3 on Base, 12 on Avalanche, 8 on Arc. Several Ethereum Spokes draw from more than
+one Hub; the Treasury Spoke is connected to all four.
+
+Named Ethereum Spokes, from the Aave docs (the other 44 have no published name yet):
 
 | Spoke | Address |
 |---|---|
@@ -49,15 +60,64 @@ Ethereum mainnet (chain 1), from the docs. Checked on chain on 2026-11-18: each 
 | Lombard BTC | `0x7EC68b5695e803e98a21a9A05d744F28b0a7753D` |
 | Treasury | `0xB9B0b8616f6Bf6841972a52058132BE08d723155` |
 
-Not every Spoke is an `ISpoke`. The Treasury Spoke implements `ITreasurySpoke` (it reverts on
-`getReserveCount()`), and the repo also has `TokenizationSpoke` and `BabylonSpoke` variants. The
-indexer must know the kind of each Spoke.
+### Spoke kinds
+
+Every address a Hub lists as a Spoke was probed on chain on 2026-11-18. The full list, with kind,
+Hubs, oracle and name, is [registry/spokes.toml](../registry/spokes.toml).
+
+| Kind | What it is | How it is recognised | Ethereum | Base | Avalanche | Arc |
+|---|---|---|---|---|---|---|
+| `spoke` | standard lending Spoke (`ISpoke`) | answers `getReserveCount()` and `ORACLE()` | 14 | 1 | 4 | 3 |
+| `tokenization` | ERC-4626 vault over one Hub asset, e.g. "Wrapped Aave Core USDC" | answers `asset()` and `symbol()` | 40 | 1 | 7 | 4 |
+| `treasury` | receives protocol fees for every Hub on its chain | answers `owner()`, none of the above | 1 | 1 | 1 | 1 |
+
+So 52 of the 78 Spokes are vaults: users of a tokenization Spoke hold vault shares and have no
+position, health factor or liquidation. Risk pages are about the 22 standard Spokes; the vaults and
+the Treasury matter for Hub allocation and supply.
+
+Each standard Spoke has its own `AaveOracle` (22 in total), recorded in the registry.
+
+## ABIs
+
+The ABIs in `crates/protocol/abi/` are those of the **deployed** contracts, as verified on Sourcify,
+fetched 2026-11-18. `topics.tsv` there lists every event with its topic0.
+
+| File | Contract | Events |
+|---|---|---|
+| `hub.json` | `HubInstance` | 18 |
+| `spoke.json` | `SpokeInstance` | 22 |
+| `tokenization_spoke.json` | `TokenizationSpokeInstance` | 6 |
+| `treasury_spoke.json` | `TreasurySpokeInstance` | 3 |
+| `aave_oracle.json` | `AaveOracle` | 2 |
+| `interest_rate_strategy.json` | `AssetInterestRateStrategy` | 1 |
+| `access_manager.json` | `AccessManagerEnumerable` (the `authority()` of Hubs and Spokes) | 12 |
+| `chainlink_aggregator_proxy.json` | `EACAggregatorProxy`, the price source of ETH / USD on the Main Spoke | 4 |
+
+What was checked:
+
+- **One ABI per kind, on every chain.** The seven Hub implementations have byte-identical code. The
+  implementations of each Spoke kind have the same code size on all four chains (they differ only
+  in constructor constants), so one ABI serves each kind. Base and Arc contracts are not on
+  Sourcify; they are covered by this comparison, not by their own verification.
+- **Events match live logs.** Recent logs of the Ethereum Core Hub (584), the Ethereum Main Spoke
+  (381) and the Avalanche Core Hub (204) contain no topic0 outside these ABIs.
+- **Against the repo.** The deployed event set equals the one listed below from `aave/aave-v4`, plus
+  two from the proxy and access layers: `Initialized` and `AuthorityUpdated`.
+
+Two corrections to what the Aave docs say:
+
+- **Hubs and Spokes are behind proxies.** Every Hub and Spoke address is an ERC-1967 proxy; the code
+  sits in an implementation (`HubInstance`, `SpokeInstance`, ...). The docs call the Hub immutable.
+  An upgrade can change the event set, so the indexer watches the proxies' `Upgraded` event and
+  stops parsing that contract until the ABI is reviewed. Raw logs keep flowing.
+- **Tokenization Spoke events** are the ERC-4626 and ERC-20 ones: `Deposit`, `Withdraw`, `Transfer`,
+  `Approval`, plus `SetTokenizationSpokeImmutables`. The Treasury Spoke emits only ownership events.
 
 Not known yet:
 
-- Deployment block of each contract (needed as the backfill start).
-- Avalanche addresses. News and a governance post say v4 is live there; the docs list only Ethereum.
-- Addresses of oracles, configurators and position managers. Each Spoke exposes `ORACLE()`.
+- Names for 12 standard Spokes (the rest are named: docs, or the vault symbol).
+- Addresses of configurators and position managers.
+- A Babylon Spoke: the code exists in the repo, none is connected to a Hub yet.
 
 The seed list above is only a start. The chain is the registry: `Hub.AddSpoke` lists every Spoke,
 `Spoke.AddReserve` lists every reserve.

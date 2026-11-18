@@ -8,6 +8,7 @@ Monitoring and real-time app for Aave v4. Main reader: a risk analyst.
 |---|---|
 | [docs/protocol.md](docs/protocol.md) | contract addresses, ABIs, events, view calls |
 | [docs/architecture.md](docs/architecture.md) | repo layout, indexer, API, ClickHouse, Dragonfly, Worker |
+| [docs/data-pipeline.md](docs/data-pipeline.md) | any table, key, stream, migration, indexer stage or price source |
 | [docs/dashboard-data.md](docs/dashboard-data.md) | any number shown in the UI, any API endpoint, any query |
 | [docs/branding.md](docs/branding.md) | any UI, colour, font, copy or chart |
 | [docs/visual-identity.html](docs/visual-identity.html) | any component: copy its markup, tokens and states from here |

@@ -1,0 +1,21 @@
+[
+{"type":"constructor","inputs":[{"name":"hub_","type":"address","internalType":"address"}],"stateMutability":"nonpayable"},
+{"name":"InterestRateDataNotSet","type":"error","inputs":[{"name":"assetId","type":"uint256","internalType":"uint256"}]},
+{"name":"InvalidAddress","type":"error","inputs":[]},
+{"name":"InvalidMaxDrawnRate","type":"error","inputs":[]},
+{"name":"InvalidOptimalUsageRatio","type":"error","inputs":[]},
+{"name":"OnlyHub","type":"error","inputs":[]},
+{"name":"UpdateInterestRateData","type":"event","inputs":[{"name":"hub","type":"address","indexed":true,"internalType":"address"},{"name":"assetId","type":"uint256","indexed":true,"internalType":"uint256"},{"name":"optimalUsageRatio","type":"uint256","indexed":false,"internalType":"uint256"},{"name":"baseDrawnRate","type":"uint256","indexed":false,"internalType":"uint256"},{"name":"rateGrowthBeforeOptimal","type":"uint256","indexed":false,"internalType":"uint256"},{"name":"rateGrowthAfterOptimal","type":"uint256","indexed":false,"internalType":"uint256"}],"anonymous":false},
+{"name":"HUB","type":"function","inputs":[],"outputs":[{"name":"","type":"address","internalType":"address"}],"stateMutability":"view"},
+{"name":"MAX_ALLOWED_DRAWN_RATE","type":"function","inputs":[],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
+{"name":"MAX_OPTIMAL_RATIO","type":"function","inputs":[],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
+{"name":"MIN_OPTIMAL_RATIO","type":"function","inputs":[],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
+{"name":"calculateInterestRate","type":"function","inputs":[{"name":"assetId","type":"uint256","internalType":"uint256"},{"name":"liquidity","type":"uint256","internalType":"uint256"},{"name":"drawn","type":"uint256","internalType":"uint256"},{"name":"","type":"uint256","internalType":"uint256"},{"name":"swept","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
+{"name":"getBaseDrawnRate","type":"function","inputs":[{"name":"assetId","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
+{"name":"getInterestRateData","type":"function","inputs":[{"name":"assetId","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"tuple","components":[{"name":"optimalUsageRatio","type":"uint16","internalType":"uint16"},{"name":"baseDrawnRate","type":"uint32","internalType":"uint32"},{"name":"rateGrowthBeforeOptimal","type":"uint32","internalType":"uint32"},{"name":"rateGrowthAfterOptimal","type":"uint32","internalType":"uint32"}],"internalType":"struct IAssetInterestRateStrategy.InterestRateData"}],"stateMutability":"view"},
+{"name":"getMaxDrawnRate","type":"function","inputs":[{"name":"assetId","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
+{"name":"getOptimalUsageRatio","type":"function","inputs":[{"name":"assetId","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
+{"name":"getRateGrowthAfterOptimal","type":"function","inputs":[{"name":"assetId","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
+{"name":"getRateGrowthBeforeOptimal","type":"function","inputs":[{"name":"assetId","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},
+{"name":"setInterestRateData","type":"function","inputs":[{"name":"assetId","type":"uint256","internalType":"uint256"},{"name":"data","type":"bytes","internalType":"bytes"}],"outputs":[],"stateMutability":"nonpayable"}
+]
