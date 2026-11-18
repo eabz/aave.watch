@@ -1,0 +1,35 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/visual-identity.html"
+        ],
+        "createdAt": "2026-11-18T14:20:40.157Z",
+        "reason": "agent: tables and segmented controls sit flush in their container by design; cells and labels carry their own padding"
+      },
+      {
+        "rule": "repeated-container-text",
+        "value": "*",
+        "files": [
+          "docs/visual-identity.html"
+        ],
+        "createdAt": "2026-11-18T14:20:40.176Z",
+        "reason": "agent: state labels (Hover, Focus, Disabled) repeat because the page is a component specimen"
+      },
+      {
+        "rule": "overused-font",
+        "value": "*",
+        "files": [
+          "docs/visual-identity.html"
+        ],
+        "createdAt": "2026-11-18T14:20:40.194Z",
+        "reason": "agent: Inter is pinned by docs/branding.md, chosen with the owner as the public face shared with the Aave ecosystem"
+      }
+    ]
+  }
+}

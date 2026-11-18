@@ -1,0 +1,7 @@
+[package]
+name = "aave-watch-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aave-watch-protocol = { version = "0.1.0", path = "../protocol" }

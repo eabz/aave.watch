@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aave.watch visual identity</title>
+<meta name="description" content="Colours, type, components and voice of aave.watch, shown in every state.">
+<script>try{var t=localStorage.getItem('aw-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}document.documentElement.classList.add('js');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: custom
+ * paper: #110f0f · accent: #978eff · display: Inter · body: Inter
+ * nav: left rail of section links · signature: the at-risk positions table advancing one block · states: default, hover, focus, active, disabled, loading, error, empty
+ * axes: dark/grotesk/chromatic-violet · posture: restrained · contrast: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V3 · weakest: V, a rail beside a sheet is the expected form for a style guide; opened on the working positions table instead of a logo and a swatch grid */
+:root {
+  color-scheme: dark;
+  --bg: light-dark(#f7f6f6, #110f0f);
+  --surface: light-dark(#fdfcfb, #211d1d);
+  --surface-2: light-dark(#f0efee, #2b2727);
+  --surface-3: light-dark(#e6e5e4, #363131);
+  --border: light-dark(#dddcdb, #444444);
+  --border-subtle: light-dark(#e9e8e7, #2f2b2b);
+  --border-strong: light-dark(#8f8e8e, #706c6c);
+  --text: light-dark(#211d1d, #f5f3f3);
+  --text-2: light-dark(#636161, #b8b5b5);
+  --text-3: light-dark(#696767, #949292);
+  --accent: #978eff;
+  --accent-hover: light-dark(#8a80f5, #a9a2ff);
+  --accent-text: light-dark(#5446cf, #978eff);
+  --accent-soft: light-dark(#e5e5ff, #2d2a45);
+  --on-fill: #110f0f;
+  --pressed: light-dark(#d9d8d7, #423c3c);
+  --accent-pressed: light-dark(#7a70e6, #8279e6);
+  --positive: #01d062;
+  --positive-text: light-dark(#00733a, #01d062);
+  --warning: #ffc42c;
+  --warning-text: light-dark(#805a00, #ffc42c);
+  --danger: #f24900;
+  --danger-text: light-dark(#bd3900, #ff6a2b);
+  --danger-2: #ff9a6b;
+  --info: #5d7eaa;
+  --info-text: light-dark(#1c4886, #7f9fca);
+  --focus: light-dark(#5446cf, #978eff);
+  --series-1: #978eff; --series-2: #5d7eaa; --series-3: light-dark(#4c1f5e, #d0ceff); --series-4: #c18fff; --series-5: #94799e; --series-6: #8f8e8e;
+  --scrim: light-dark(rgb(33 29 29 / 0.4), rgb(17 15 15 / 0.7));
+  --shadow-raised: light-dark(0 1px 2px rgb(33 29 29 / 0.06), none);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px; --radius-pill: 999px;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px; --s-7: 48px;
+  --dur-fast: 120ms; --dur-panel: 200ms; --dur-flash: 600ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --rail: 232px; --container: 1360px; --gutter: 32px;
+}
+:root[data-theme="light"] { color-scheme: light; }
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { overflow-x: clip; }
+html { scrollbar-color: var(--border-strong) var(--bg); scroll-padding-top: var(--s-5); }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 0.875rem/1.25rem var(--font-sans); -webkit-font-smoothing: antialiased; caret-color: var(--accent); font-variant-numeric: tabular-nums; }
+::selection { background: var(--accent-soft); color: var(--text); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+h1, h2, h3, p, figure, ul, ol, dl, dd { margin: 0; }
+h1, h2, h3 { font-family: var(--font-sans); font-weight: 600; text-wrap: balance; overflow-wrap: break-word; min-width: 0; }
+ul, ol { padding: 0; list-style: none; }
+a { color: var(--accent-text); text-decoration-thickness: 1px; text-underline-offset: 0.18em; }
+button, input, select, textarea { font: inherit; color: inherit; }
+svg { display: block; }
+[hidden] { display: none !important; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* type styles */
+.t-display { font: 600 2rem/2.375rem var(--font-sans); letter-spacing: -0.03em; }
+.t-h1 { font: 600 1.5rem/1.875rem var(--font-sans); letter-spacing: -0.02em; }
+.t-h2 { font: 600 1.125rem/1.5rem var(--font-sans); letter-spacing: -0.01em; }
+.t-prose { font: 400 1rem/1.625rem var(--font-sans); max-width: 68ch; text-wrap: pretty; }
+.t-body { font: 400 0.875rem/1.25rem var(--font-sans); }
+.t-label { font: 500 0.75rem/1rem var(--font-sans); letter-spacing: 0.01em; color: var(--text-2); }
+.t-caption { font: 400 0.75rem/1rem var(--font-sans); color: var(--text-3); }
+.mono { font: 400 0.8125rem/1.25rem var(--font-mono); font-variant-ligatures: none; }
+.muted { color: var(--text-2); }
+
+/* shell */
+.skip { position: absolute; left: var(--s-4); top: -80px; z-index: 50; padding: var(--s-2) var(--s-4); border-radius: var(--radius-sm); background: var(--accent); color: var(--on-fill); text-decoration: none; }
+.skip:focus-visible { top: var(--s-4); }
+.shell { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); gap: var(--s-7); width: 100%; max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+.rail { position: sticky; top: 0; align-self: start; display: flex; flex-direction: column; gap: var(--s-5); height: 100dvh; padding-block: var(--s-6); overflow-y: auto; }
+.rail nav a { display: flex; align-items: center; min-height: 32px; padding: 0 var(--s-3); border-radius: var(--radius-sm); color: var(--text-2); text-decoration: none; transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.rail nav a:hover { background: var(--surface-2); color: var(--text); }
+.rail nav a[aria-current="true"] { background: var(--accent-soft); color: var(--text); }
+.rail__foot { margin-top: auto; display: grid; gap: var(--s-3); }
+.wordmark { font: 600 1.25rem/1.5rem var(--font-sans); letter-spacing: -0.02em; color: var(--text); text-decoration: none; }
+.wordmark b { font-weight: 600; color: var(--accent); }
+main { min-width: 0; padding-block: var(--s-6) var(--s-7); }
+.intro { display: grid; gap: var(--s-3); margin-bottom: var(--s-5); }
+.sec { padding-top: var(--s-7); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); }
+.sec > header { display: grid; gap: var(--s-2); }
+.sub { margin-top: var(--s-3); }
+footer.foot { margin-top: var(--s-7); padding-top: var(--s-5); border-top: 1px solid var(--border); color: var(--text-2); }
+
+/* panel and specimen grid */
+.panel { min-width: 0; overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-raised); }
+.panel__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border); }
+.panel__head > .grow { flex: 1; min-width: 12rem; display: grid; gap: 2px; }
+.panel__body { padding: var(--s-4); }
+.panel__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3); padding: var(--s-2) var(--s-4); border-top: 1px solid var(--border); }
+.spec { display: grid; grid-template-columns: 9rem minmax(0, 1fr); }
+.spec > * { padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border-subtle); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
+.spec > :nth-last-child(-n+2) { border-bottom: 0; }
+.spec > dt { color: var(--text-2); font: 500 0.75rem/1rem var(--font-sans); align-items: flex-start; padding-top: var(--s-4); }
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
+.cols-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 0 16px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); font: 500 0.875rem/1 var(--font-sans); white-space: nowrap; text-decoration: none; cursor: pointer; transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.btn:hover, .btn.is-hover { background: var(--surface-3); }
+.btn:active, .btn.is-active { background: var(--pressed); transform: translateY(1px); }
+.btn.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn[aria-busy="true"] { cursor: progress; color: var(--text-2); }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-fill); }
+.btn--primary:hover, .btn--primary.is-hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn--primary:active, .btn--primary.is-active { background: var(--accent-pressed); border-color: var(--accent-pressed); }
+.btn--primary[aria-busy="true"] { color: var(--on-fill); }
+.btn--quiet { background: transparent; border-color: transparent; color: var(--accent-text); }
+.btn--quiet:hover, .btn--quiet.is-hover, .btn--quiet:active, .btn--quiet.is-active { background: var(--accent-soft); }
+.btn--sm { min-height: 32px; padding: 0 12px; font-size: 0.8125rem; }
+.btn--icon { width: 32px; min-height: 32px; padding: 0; border-color: transparent; background: transparent; color: var(--text-2); }
+.btn--icon:hover { background: var(--surface-3); color: var(--text); }
+
+/* forms */
+.field { display: grid; gap: 8px; min-width: 0; }
+.field > label, .field > .lbl { font: 500 0.75rem/1rem var(--font-sans); color: var(--text-2); }
+.input, .select select { width: 100%; min-height: 36px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); transition: border-color var(--dur-fast) var(--ease); }
+.input::placeholder { color: var(--text-3); opacity: 1; }
+.input:hover, .select select:hover { border-color: var(--text-2); }
+.input:focus-visible, .input.is-focus, .select select:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.input[aria-invalid="true"] { border-color: var(--danger-text); }
+.input:disabled, .select select:disabled { opacity: 0.5; cursor: not-allowed; }
+.help { font: 400 0.75rem/1rem var(--font-sans); color: var(--text-3); min-height: 1rem; }
+.help--error { color: var(--danger-text); display: flex; gap: 4px; align-items: center; }
+.help--error .icon { width: 12px; height: 12px; }
+.select { position: relative; }
+.select select { appearance: none; padding-right: 32px; }
+.select .icon { position: absolute; right: 10px; top: 10px; pointer-events: none; color: var(--text-2); }
+.search { position: relative; }
+.search .icon { position: absolute; left: 12px; top: 10px; color: var(--text-3); pointer-events: none; }
+.search .input { padding-left: 36px; }
+.check { display: inline-flex; align-items: center; gap: var(--s-2); min-height: 32px; cursor: pointer; }
+.check input[type="checkbox"]:not(.switch) { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.switch { appearance: none; position: relative; flex: none; width: 36px; height: 20px; margin: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface-2); cursor: pointer; transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
+.switch::before { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: var(--radius-pill); background: var(--text-2); transition: transform var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease); }
+.switch:checked { background: var(--accent); border-color: var(--accent); }
+.switch:checked::before { transform: translateX(16px); background: var(--on-fill); }
+.seg { display: inline-flex; width: fit-content; min-width: 0; padding: 0; margin: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.seg legend { float: left; }
+.seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.seg label { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; color: var(--text-2); cursor: pointer; transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.seg label + input + label { border-left: 1px solid var(--border-strong); }
+.seg label:hover { color: var(--text); }
+.seg input:checked + label { background: var(--accent-soft); color: var(--text); }
+.seg input:focus-visible + label { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+/* badges, chips, keys */
+.badge { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: 500 0.75rem/1rem var(--font-sans); letter-spacing: 0.01em; color: var(--text-2); white-space: nowrap; }
+.badge--healthy { border-color: var(--positive-text); color: var(--positive-text); }
+.badge--watch { border-color: var(--warning-text); color: var(--warning-text); }
+.badge--risk { border-color: var(--danger-text); color: var(--danger-text); }
+.badge--liq { border-color: var(--danger); background: var(--danger); color: var(--on-fill); }
+.badge--info { border-color: var(--info-text); color: var(--info-text); }
+.badge--code { font-family: var(--font-mono); font-weight: 400; letter-spacing: 0; }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: transparent; color: var(--text-2); font: 500 0.75rem/1rem var(--font-sans); cursor: pointer; transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
+.chip:hover { color: var(--text); border-color: var(--text-2); }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent-text); color: var(--text); }
+.chip .n { color: var(--text-3); font-weight: 400; }
+.chip[aria-pressed="true"] .n { color: var(--text-2); }
+.chips { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.key { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
+.key i { width: 10px; height: 10px; border-radius: 2px; background: var(--k, var(--series-1)); }
+
+/* tables */
+.scroll { overflow-x: auto; }
+.scroll:focus-visible { outline-offset: -2px; }
+.table { width: 100%; border-collapse: collapse; }
+.table th { height: 36px; padding: 0 var(--s-3); border-bottom: 1px solid var(--border); font: 500 0.75rem/1rem var(--font-sans); letter-spacing: 0.01em; color: var(--text-2); text-align: left; white-space: nowrap; }
+.table td { height: 36px; padding: 0 var(--s-3); border-bottom: 1px solid var(--border-subtle); white-space: nowrap; transition: background-color var(--dur-fast) var(--ease); }
+.table th:first-child, .table td:first-child { padding-left: var(--s-4); }
+.table th:last-child, .table td:last-child { padding-right: var(--s-4); }
+.table tbody tr:last-child td { border-bottom: 0; }
+.table tbody tr:hover td { background: var(--surface-2); }
+.table tr[aria-selected="true"] td { background: var(--accent-soft); }
+.table .num { text-align: right; }
+.table--compact th, .table--compact td { height: 32px; }
+.sort { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; color: inherit; cursor: pointer; }
+.sort:hover { color: var(--text); }
+.sort .icon { width: 12px; height: 12px; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+.sort:hover .icon, .sort:focus-visible .icon { opacity: 0.5; }
+th[aria-sort] .sort { color: var(--text); }
+th[aria-sort] .sort .icon { opacity: 1; }
+th[aria-sort="descending"] .sort .icon { transform: rotate(180deg); }
+.num .sort { flex-direction: row-reverse; }
+.is-changed { animation: flash var(--dur-flash) ease-out 1; }
+@keyframes flash { from { background-color: var(--accent-soft); } to { background-color: transparent; } }
+.skel { display: block; height: 10px; border-radius: 3px; background: var(--surface-3); }
+.state { display: grid; justify-items: start; gap: var(--s-2); padding: var(--s-5) var(--s-4); }
+.state p { max-width: 46ch; color: var(--text-2); }
+.state .icon { width: 20px; height: 20px; color: var(--text-3); }
+.state--error .icon { color: var(--danger-text); }
+.addr { display: inline-flex; align-items: center; gap: 2px; }
+
+/* figures */
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stats > div { display: grid; gap: 4px; padding: var(--s-4); border-left: 1px solid var(--border-subtle); }
+.stats > div:first-child { border-left: 0; }
+
+/* navigation */
+.tabs { display: flex; gap: var(--s-5); padding: 0 var(--s-4); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tab { min-height: 40px; padding: 0; border: 0; background: none; color: var(--text-2); font: 500 0.875rem/1 var(--font-sans); white-space: nowrap; cursor: pointer; box-shadow: inset 0 -2px 0 transparent; transition: color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.tab:focus-visible { outline-offset: -2px; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); color: var(--text-2); }
+.crumbs li + li::before { content: "/"; margin-right: var(--s-2); color: var(--text-3); }
+.crumbs a { color: var(--text-2); text-decoration: none; }
+.crumbs a:hover { color: var(--text); text-decoration: underline; }
+.crumbs [aria-current] { color: var(--text); }
+
+/* feedback */
+.banner { display: flex; align-items: flex-start; gap: 12px; padding: 12px var(--s-3); border: 1px solid color-mix(in srgb, var(--tone) 50%, var(--border)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--tone) 9%, var(--surface)); }
+.banner .icon { margin-top: 2px; color: var(--tone-text); }
+.banner p { flex: 1; min-width: 0; }
+.banner--info { --tone: var(--info); --tone-text: var(--info-text); }
+.banner--warning { --tone: var(--warning); --tone-text: var(--warning-text); }
+.banner--danger { --tone: var(--danger); --tone-text: var(--danger-text); }
+.tip { position: relative; display: inline-flex; }
+.tip__bubble { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 5; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-3); color: var(--text); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) var(--ease); }
+.tip:hover .tip__bubble, .tip:focus-within .tip__bubble, .tip.is-open .tip__bubble { opacity: 1; }
+.toast { position: fixed; right: var(--s-5); bottom: var(--s-5); z-index: 40; display: flex; align-items: center; gap: var(--s-2); padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-3); color: var(--text); opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity var(--dur-panel) var(--ease), transform var(--dur-panel) var(--ease); }
+.toast.is-in { opacity: 1; transform: none; }
+.toast .icon { color: var(--positive-text); }
+.toast--static { position: static; opacity: 1; transform: none; width: fit-content; }
+dialog.dialog { width: min(420px, calc(100% - 32px)); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); }
+dialog.dialog::backdrop { background: var(--scrim); }
+.dialog__body { display: grid; gap: var(--s-4); padding: var(--s-5); }
+.dialog__foot { display: flex; justify-content: flex-end; gap: var(--s-2); padding: var(--s-3) var(--s-5); border-top: 1px solid var(--border); }
+
+/* charts */
+.chart { width: 680px; height: 224px; }
+.chart .grid { stroke: var(--border-subtle); stroke-width: 1; }
+.chart .ref { stroke: var(--text-3); stroke-width: 1; stroke-dasharray: 4 4; }
+.chart .line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .end { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
+.chart text { font: 400 12px var(--font-sans); fill: var(--text-3); }
+.chart text.val { font-weight: 500; fill: var(--text); }
+.meters { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 12px var(--s-3); align-items: center; }
+.meter { height: 8px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+.meter > i { display: block; height: 100%; inline-size: calc(var(--v) * 100%); background: var(--accent); }
+.meter--over > i { background: var(--danger); }
+.stack { display: grid; gap: 2px; height: 20px; border-radius: 3px; overflow: hidden; }
+.stack > i { background: var(--k); }
+.legend { display: grid; grid-template-columns: max-content max-content max-content; gap: 8px var(--s-5); margin-top: var(--s-3); }
+.legend .num { text-align: right; }
+
+/* swatches, wordmark, rules */
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: var(--s-3); }
+.sw { display: grid; gap: 4px; }
+.sw > i { height: 48px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--c); }
+.wm-stage { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-7); padding: var(--s-7) var(--s-5); }
+.wm-big { font: 600 3.5rem/1 var(--font-sans); letter-spacing: -0.02em; }
+.wm-big b { font-weight: 600; color: var(--accent); }
+.fav { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg); }
+.fav i { width: 16px; height: 16px; border-radius: var(--radius-pill); background: var(--accent); }
+.rules { display: grid; gap: var(--s-2); padding-left: 1.1em; list-style: disc; color: var(--text-2); }
+.rules li::marker { color: var(--text-3); }
+.radii { display: flex; flex-wrap: wrap; gap: var(--s-5); }
+.radii > div { display: grid; gap: var(--s-2); justify-items: start; }
+.radii i { width: 88px; height: 56px; border: 1px solid var(--border-strong); background: var(--surface-2); border-radius: var(--r); }
+.spaces { display: grid; grid-template-columns: max-content max-content; gap: var(--s-2) var(--s-4); align-items: center; }
+.spaces i { display: block; height: 12px; inline-size: var(--w); border-radius: 2px; background: var(--border-strong); }
+.say { width: 100%; border-collapse: collapse; }
+.say th { padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--border); font: 500 0.75rem/1rem var(--font-sans); color: var(--text-2); text-align: left; }
+.say td { padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border-subtle); vertical-align: top; width: 50%; }
+.say tr:last-child td { border-bottom: 0; }
+.say td + td { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--border-strong); }
+.feed li { display: grid; grid-template-columns: 4.5rem 11rem minmax(0, 1fr) max-content max-content; gap: var(--s-3); align-items: center; min-height: 36px; padding: 0 var(--s-4); border-bottom: 1px solid var(--border-subtle); }
+.feed li:last-child { border-bottom: 0; }
+.feed .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 60rem) {
+  :root { --gutter: 16px; }
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .rail { position: static; height: auto; padding-block: var(--s-4) 0; gap: var(--s-3); overflow: visible; }
+  .rail nav ul { display: flex; gap: var(--s-1); overflow-x: auto; }
+  .rail nav a { white-space: nowrap; }
+  .rail__foot { margin-top: 0; }
+  .rail__foot .t-caption { display: none; }
+  .cols, .cols-3, .stats { grid-template-columns: minmax(0, 1fr); }
+  .stats > div { border-left: 0; border-top: 1px solid var(--border-subtle); }
+  .stats > div:first-child { border-top: 0; }
+  .spec { grid-template-columns: minmax(0, 1fr); }
+  .spec > dt { border-bottom: 0; padding-bottom: 0; }
+  .wm-big { font-size: 2.5rem; }
+  .feed li { grid-template-columns: 4.5rem minmax(0, 1fr) max-content; padding-block: var(--s-2); }
+  .feed .what, .feed .tx { grid-column: 1 / -1; white-space: normal; }
+  #pos :is(th, td):is(:nth-child(2), :nth-child(3), :nth-child(5)) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+  .is-changed { animation: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<svg width="0" height="0" class="visually-hidden" aria-hidden="true">
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="m3 8.5 3.2 3L13 4.5"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 2.5 14 13H2L8 2.5ZM8 6.5v3M8 11.4v.1"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 7.2v3.6M8 5.1v.1"/></symbol>
+  <symbol id="i-empty" viewBox="0 0 16 16"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M2.5 6.5h11M6 6.5V13"/></symbol>
+  <symbol id="i-download" viewBox="0 0 16 16"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></symbol>
+</svg>
+
+<div class="shell">
+  <aside class="rail">
+    <a class="wordmark" href="#main" aria-label="aave.watch, top of page">aave<b>.</b>watch</a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#wordmark">Wordmark</a></li>
+        <li><a href="#colour">Colour</a></li>
+        <li><a href="#risk">Risk scale</a></li>
+        <li><a href="#type">Type</a></li>
+        <li><a href="#shape">Shape and space</a></li>
+        <li><a href="#buttons">Buttons</a></li>
+        <li><a href="#forms">Forms</a></li>
+        <li><a href="#badges">Badges and chips</a></li>
+        <li><a href="#tables">Tables</a></li>
+        <li><a href="#figures">Figures</a></li>
+        <li><a href="#nav">Navigation</a></li>
+        <li><a href="#feedback">Feedback</a></li>
+        <li><a href="#charts">Charts</a></li>
+        <li><a href="#feed">Live feed</a></li>
+        <li><a href="#motion">Motion</a></li>
+        <li><a href="#voice">Voice</a></li>
+      </ul>
+    </nav>
+    <div class="rail__foot">
+      <fieldset class="seg" id="theme">
+        <legend class="visually-hidden">Theme</legend>
+        <input type="radio" name="theme" id="th-dark" value="dark" checked><label for="th-dark">Dark</label>
+        <input type="radio" name="theme" id="th-light" value="light"><label for="th-light">Light</label>
+      </fieldset>
+      <p class="t-caption">Source of the rules: docs/branding.md</p>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div class="intro">
+      <h1 class="t-h1">A risk desk for Aave v4</h1>
+      <p class="t-prose muted">Every colour, type style and component of aave.watch, in the states it ships in. The table below is the product’s main object.</p>
+    </div>
+
+    <section class="panel" id="overview" aria-labelledby="pos-title">
+      <div class="panel__head">
+        <div class="grow">
+          <h2 class="t-h2" id="pos-title">Positions at risk</h2>
+          <p class="t-caption">Sample data. Read at block <span id="pos-block">21,480,112</span>, <span id="pos-age">4s ago</span>.</p>
+        </div>
+        <div class="chips" role="group" aria-label="Filter by health">
+          <button class="chip" type="button" aria-pressed="true" data-filter="all">All <span class="n" data-count="all">6</span></button>
+          <button class="chip" type="button" aria-pressed="false" data-filter="liq">Liquidatable <span class="n" data-count="liq">1</span></button>
+          <button class="chip" type="button" aria-pressed="false" data-filter="risk">At risk <span class="n" data-count="risk">2</span></button>
+          <button class="chip" type="button" aria-pressed="false" data-filter="watch">Watch <span class="n" data-count="watch">2</span></button>
+        </div>
+        <button class="btn btn--primary btn--sm" type="button" id="advance">Advance one block</button>
+      </div>
+      <div class="scroll" tabindex="0" role="region" aria-label="Positions at risk table">
+        <table class="table" id="pos">
+          <thead>
+            <tr>
+              <th scope="col">Account</th>
+              <th scope="col"><button class="sort" type="button">Spoke <svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+              <th scope="col" class="num"><button class="sort" type="button">Collateral, USD <svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+              <th scope="col" class="num"><button class="sort" type="button">Debt, USD <svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+              <th scope="col" class="num"><button class="sort" type="button">Risk premium <svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+              <th scope="col" class="num" aria-sort="ascending"><button class="sort" type="button">Health factor <svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">0x7a1f…c3d0</td><td>Main</td><td class="num" data-v="4820000">4.82M</td><td class="num" data-v="3910000">3.91M</td><td class="num" data-v="4.2">4.20%</td><td class="num hf" data-v="0.98">0.98</td><td><span class="badge"></span></td></tr>
+            <tr><td class="mono">0x03be…91aa</td><td>Ethena Correlated</td><td class="num" data-v="12400000">12.40M</td><td class="num" data-v="11020000">11.02M</td><td class="num" data-v="1.1">1.10%</td><td class="num hf" data-v="1.03">1.03</td><td><span class="badge"></span></td></tr>
+            <tr><td class="mono">0xd4c2…07f1</td><td>Lido eSpoke</td><td class="num" data-v="2150000">2.15M</td><td class="num" data-v="1840000">1.84M</td><td class="num" data-v="0.35">0.35%</td><td class="num hf" data-v="1.07">1.07</td><td><span class="badge"></span></td></tr>
+            <tr><td class="mono">0x9e08…4b6c</td><td>Main</td><td class="num" data-v="880400">880.4K</td><td class="num" data-v="612000">612.0K</td><td class="num" data-v="6.75">6.75%</td><td class="num hf" data-v="1.18">1.18</td><td><span class="badge"></span></td></tr>
+            <tr><td class="mono">0x2f67…e5d9</td><td>Bluechip</td><td class="num" data-v="31600000">31.60M</td><td class="num" data-v="19750000">19.75M</td><td class="num" data-v="0">0.00%</td><td class="num hf" data-v="1.34">1.34</td><td><span class="badge"></span></td></tr>
+            <tr><td class="mono">0xb81d…2a44</td><td>Gold</td><td class="num" data-v="1020000">1.02M</td><td class="num" data-v="540100">540.1K</td><td class="num" data-v="2.4">2.40%</td><td class="num hf" data-v="1.62">1.62</td><td><span class="badge"></span></td></tr>
+          </tbody>
+        </table>
+        <div class="state" id="pos-empty" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-empty"/></svg>
+          <p>No positions in this band at block <span data-block>21,480,112</span>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="wordmark" aria-labelledby="h-wordmark">
+      <header><h2 class="t-h2" id="h-wordmark">Wordmark</h2><p class="muted">The name, set in Inter 600, lowercase, with the dot in the accent colour. There is no symbol.</p></header>
+      <div class="panel">
+        <div class="wm-stage">
+          <span class="wm-big" aria-label="aave.watch">aave<b>.</b>watch</span>
+          <span class="fav" role="img" aria-label="Favicon: the accent dot on the page background"><i></i></span>
+        </div>
+        <div class="panel__foot">
+          <ul class="rules">
+            <li>Letter-spacing −0.02em. Minimum size 16px.</li>
+            <li>Only the dot takes colour. The letters are the text colour of the theme.</li>
+            <li>No Aave logo, ghost mark or GHO mark anywhere in the product.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="colour" aria-labelledby="h-colour">
+      <header><h2 class="t-h2" id="h-colour">Colour</h2><p class="muted">Warm neutrals, one accent, three status colours and one notice colour. Switch the theme in the rail: every swatch is a token.</p></header>
+      <div class="panel"><div class="panel__body">
+        <h3 class="t-label">Neutrals</h3>
+        <div class="swatches sub">
+          <div class="sw" style="--c:var(--bg)"><i></i><span>bg</span><span class="t-caption">page</span></div>
+          <div class="sw" style="--c:var(--surface)"><i></i><span>surface</span><span class="t-caption">panels, tables</span></div>
+          <div class="sw" style="--c:var(--surface-2)"><i></i><span>surface-2</span><span class="t-caption">hover row, control</span></div>
+          <div class="sw" style="--c:var(--surface-3)"><i></i><span>surface-3</span><span class="t-caption">pressed, overlay</span></div>
+          <div class="sw" style="--c:var(--border-subtle)"><i></i><span>border-subtle</span><span class="t-caption">row lines, grid</span></div>
+          <div class="sw" style="--c:var(--border)"><i></i><span>border</span><span class="t-caption">panel edges</span></div>
+          <div class="sw" style="--c:var(--border-strong)"><i></i><span>border-strong</span><span class="t-caption">control edges, 3:1</span></div>
+          <div class="sw" style="--c:var(--text-3)"><i></i><span>text-3</span><span class="t-caption">captions, ticks</span></div>
+          <div class="sw" style="--c:var(--text-2)"><i></i><span>text-2</span><span class="t-caption">labels</span></div>
+          <div class="sw" style="--c:var(--text)"><i></i><span>text</span><span class="t-caption">text, figures</span></div>
+        </div>
+        <h3 class="t-label" style="margin-top:var(--s-5)">Accent</h3>
+        <div class="swatches sub">
+          <div class="sw" style="--c:var(--accent)"><i></i><span>accent</span><span class="t-caption">#978eff, fills</span></div>
+          <div class="sw" style="--c:var(--accent-hover)"><i></i><span>accent-hover</span><span class="t-caption">primary button hover</span></div>
+          <div class="sw" style="--c:var(--accent-text)"><i></i><span>accent-text</span><span class="t-caption">links, coloured text</span></div>
+          <div class="sw" style="--c:var(--accent-soft)"><i></i><span>accent-soft</span><span class="t-caption">selected row, chip</span></div>
+          <div class="sw" style="--c:var(--on-fill)"><i></i><span>on-fill</span><span class="t-caption">text on a colour fill</span></div>
+        </div>
+        <h3 class="t-label" style="margin-top:var(--s-5)">Status</h3>
+        <div class="swatches sub">
+          <div class="sw" style="--c:var(--positive)"><i></i><span>positive</span><span class="t-caption">#01d062, healthy</span></div>
+          <div class="sw" style="--c:var(--warning)"><i></i><span>warning</span><span class="t-caption">#ffc42c, watch</span></div>
+          <div class="sw" style="--c:var(--danger)"><i></i><span>danger</span><span class="t-caption">#f24900, at risk</span></div>
+          <div class="sw" style="--c:var(--danger-2)"><i></i><span>danger-2</span><span class="t-caption">#ff9a6b, at-risk chart segment</span></div>
+        </div>
+        <h3 class="t-label" style="margin-top:var(--s-5)">Notice</h3>
+        <div class="swatches sub">
+          <div class="sw" style="--c:var(--info)"><i></i><span>info</span><span class="t-caption">#5d7eaa, also chart series 2</span></div>
+        </div>
+        <p class="sub" style="display:flex;flex-wrap:wrap;gap:var(--s-5)">
+          <span style="color:var(--positive-text)">positive-text 1.62</span>
+          <span style="color:var(--warning-text)">warning-text 1.18</span>
+          <span style="color:var(--danger-text)">danger-text 1.03</span>
+          <span style="color:var(--info-text)">info-text notice</span>
+          <a href="#colour">accent-text link</a>
+        </p>
+      </div>
+      <div class="panel__foot">
+        <ul class="rules">
+          <li>The accent marks what is interactive or selected. Status colours mark status. Neither decorates.</li>
+          <li>Text on any colour fill is <span class="mono">on-fill</span>. Light text on the accent fails contrast (2.8 to 1).</li>
+          <li>All text pairs meet 4.5 to 1 on bg, surface and surface-2, in both themes.</li>
+        </ul>
+      </div></div>
+    </section>
+
+    <section class="sec" id="risk" aria-labelledby="h-risk">
+      <header><h2 class="t-h2" id="h-risk">Risk scale</h2><p class="muted">One scale for health factor, used in every table, badge and chart. The label always travels with the colour.</p></header>
+      <div class="panel">
+        <table class="table">
+          <thead><tr><th scope="col">Health factor</th><th scope="col">Badge</th><th scope="col">Figure colour</th></tr></thead>
+          <tbody>
+            <tr><td>1.50 and above</td><td><span class="badge badge--healthy">Healthy</span></td><td style="color:var(--positive-text)">1.62</td></tr>
+            <tr><td>1.10 to 1.49</td><td><span class="badge badge--watch">Watch</span></td><td style="color:var(--warning-text)">1.18</td></tr>
+            <tr><td>1.00 to 1.09</td><td><span class="badge badge--risk">At risk</span></td><td style="color:var(--danger-text)">1.03</td></tr>
+            <tr><td>Below 1.00</td><td><span class="badge badge--liq">Liquidatable</span></td><td style="color:var(--danger-text)">0.98</td></tr>
+          </tbody>
+        </table>
+        <div class="panel__foot"><span class="t-caption">The thresholds are placeholders, set in docs/dashboard-data.md.</span></div>
+      </div>
+    </section>
+
+    <section class="sec" id="type" aria-labelledby="h-type">
+      <header><h2 class="t-h2" id="h-type">Type</h2><p class="muted">Inter for everything, JetBrains Mono for addresses, hashes and event names. Figures use tabular numerals.</p></header>
+      <div class="panel">
+        <dl class="spec">
+          <dt>display, 32 / 38, 600</dt><dd><span class="t-display">$16.77M debt below HF 1.1</span></dd>
+          <dt>h1, 24 / 30, 600</dt><dd><span class="t-h1">Core Hub</span></dd>
+          <dt>h2, 18 / 24, 600</dt><dd><span class="t-h2">Spoke allocation</span></dd>
+          <dt>prose, 16 / 26, 400</dt><dd><p class="t-prose">A Spoke draws liquidity from a Hub up to its draw cap. When usage passes the optimal ratio the base rate climbs on the second slope.</p></dd>
+          <dt>body, 14 / 20, 400</dt><dd><span class="t-body">Main Spoke supplied 41.20M USDC and drew 28.75M.</span></dd>
+          <dt>label, 12 / 16, 500</dt><dd><span class="t-label">Draw cap usage</span></dd>
+          <dt>caption, 12 / 16, 400</dt><dd><span class="t-caption">Read at block 21,480,112, 4s ago</span></dd>
+          <dt>mono, 13 / 20, 400</dt><dd><span class="mono">0x94e7A5dCbE816e498b89aB752661904E2F56c485</span></dd>
+          <dt>Numerals</dt><dd><span class="mono" style="font-family:var(--font-sans)">1,111,111.11<br>9,876,543.20</span><span class="muted">Columns of figures align digit under digit.</span></dd>
+        </dl>
+        <div class="panel__foot">
+          <ul class="rules">
+            <li>Use weights 400, 500 and 600, and never italics.</li>
+            <li>Column headers and labels are sentence case, never capitals.</li>
+            <li>Mono is for things a reader may copy: addresses, hashes, block numbers in code, event names.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="shape" aria-labelledby="h-shape">
+      <header><h2 class="t-h2" id="h-shape">Shape and space</h2><p class="muted">Small radii and a short spacing scale keep the density a table tool needs.</p></header>
+      <div class="cols">
+        <div class="panel"><div class="panel__body">
+          <h3 class="t-label">Radius</h3>
+          <div class="radii sub">
+            <div style="--r:var(--radius-sm)"><i></i><span>sm, 6px</span><span class="t-caption">controls, badges</span></div>
+            <div style="--r:var(--radius-md)"><i></i><span>md, 10px</span><span class="t-caption">panels, tables</span></div>
+            <div style="--r:var(--radius-lg)"><i></i><span>lg, 16px</span><span class="t-caption">dialogs</span></div>
+            <div style="--r:var(--radius-pill)"><i></i><span>pill</span><span class="t-caption">filter chips</span></div>
+          </div>
+        </div></div>
+        <div class="panel"><div class="panel__body">
+          <h3 class="t-label">Spacing</h3>
+          <div class="spaces sub">
+            <span>4</span><i style="--w:4px"></i><span>8</span><i style="--w:8px"></i><span>12</span><i style="--w:12px"></i><span>16</span><i style="--w:16px"></i><span>24</span><i style="--w:24px"></i><span>32</span><i style="--w:32px"></i><span>48</span><i style="--w:48px"></i>
+          </div>
+          <p class="t-caption sub">Table rows 36px, compact 32px. Panel padding 16px. Depth is a lighter surface and a 1px border; no shadows on dark.</p>
+        </div></div>
+      </div>
+    </section>
+    <section class="sec" id="buttons" aria-labelledby="h-buttons">
+      <header><h2 class="t-h2" id="h-buttons">Buttons</h2><p class="muted">Three kinds. At most one primary per view. The product is read-only, so there is no destructive button.</p></header>
+      <div class="panel">
+        <dl class="spec">
+          <dt>Primary</dt><dd>
+            <button class="btn btn--primary" type="button">Export CSV</button>
+            <button class="btn btn--primary is-hover" type="button">Hover</button>
+            <button class="btn btn--primary is-focus" type="button">Focus</button>
+            <button class="btn btn--primary is-active" type="button">Pressed</button>
+            <button class="btn btn--primary" type="button" disabled>Disabled</button>
+            <button class="btn btn--primary" type="button" aria-busy="true">Exporting…</button>
+          </dd>
+          <dt>Secondary</dt><dd>
+            <button class="btn" type="button">Reset filters</button>
+            <button class="btn is-hover" type="button">Hover</button>
+            <button class="btn is-focus" type="button">Focus</button>
+            <button class="btn is-active" type="button">Pressed</button>
+            <button class="btn" type="button" disabled>Disabled</button>
+            <button class="btn" type="button" aria-busy="true">Loading rows…</button>
+          </dd>
+          <dt>Quiet</dt><dd>
+            <button class="btn btn--quiet" type="button">View on explorer</button>
+            <button class="btn btn--quiet is-hover" type="button">Hover</button>
+            <button class="btn btn--quiet is-focus" type="button">Focus</button>
+            <button class="btn btn--quiet is-active" type="button">Pressed</button>
+            <button class="btn btn--quiet" type="button" disabled>Disabled</button>
+          </dd>
+          <dt>Compact and icon</dt><dd>
+            <button class="btn btn--primary btn--sm" type="button">Advance one block</button>
+            <button class="btn btn--sm" type="button"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Export</button>
+            <button class="btn btn--icon" type="button" aria-label="Copy address" data-copy="0x94e7A5dCbE816e498b89aB752661904E2F56c485"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button>
+          </dd>
+        </dl>
+        <div class="panel__foot"><ul class="rules">
+          <li>A label names the action: “Export CSV”, not “Submit”.</li>
+          <li>Loading swaps the label for what is happening. Nothing spins.</li>
+          <li>Height 36px, compact 32px. Focus is a 2px ring, 2px away, on every control.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section class="sec" id="forms" aria-labelledby="h-forms">
+      <header><h2 class="t-h2" id="h-forms">Forms</h2><p class="muted">Controls for finding and filtering. Every one has a visible label.</p></header>
+      <div class="panel"><div class="panel__body">
+        <div class="cols-3">
+          <div class="field"><label for="f-addr">Account</label><input class="input mono" id="f-addr" type="text" placeholder="0x… or ENS name" autocomplete="off" spellcheck="false"><p class="help">Paste a full address.</p></div>
+          <div class="field"><label for="f-focus">Minimum debt, USD</label><input class="input is-focus" id="f-focus" type="text" inputmode="decimal" value="100,000"><p class="help">Focus state.</p></div>
+          <div class="field"><label for="f-err">Health factor below</label><input class="input" id="f-err" type="text" inputmode="decimal" value="1,1" aria-invalid="true" aria-describedby="f-err-help"><p class="help help--error" id="f-err-help"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Use a point for decimals, like 1.1.</p></div>
+          <div class="field"><label for="f-search">Search</label><div class="search"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input class="input" id="f-search" type="search" placeholder="Asset, Spoke or address"></div></div>
+          <div class="field"><label for="f-spoke">Spoke</label><div class="select"><select id="f-spoke"><option>All Spokes</option><option>Main</option><option>Bluechip</option><option>Ethena Correlated</option><option>Lido eSpoke</option><option>Gold</option></select><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></div></div>
+          <div class="field"><label for="f-dis">Hub</label><input class="input" id="f-dis" type="text" value="Core" disabled><p class="help">Disabled: set by the page.</p></div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-6);margin-top:var(--s-5)">
+          <label class="check"><input type="checkbox" checked> Only positions with debt</label>
+          <label class="check"><input type="checkbox"> Include Treasury Spoke</label>
+          <label class="check"><input class="switch" type="checkbox" role="switch" checked> Live updates</label>
+          <label class="check"><input class="switch" type="checkbox" role="switch"> Compact rows</label>
+          <fieldset class="seg"><legend class="visually-hidden">Window</legend>
+            <input type="radio" name="win" id="w1"><label for="w1">24h</label>
+            <input type="radio" name="win" id="w2" checked><label for="w2">7d</label>
+            <input type="radio" name="win" id="w3"><label for="w3">30d</label>
+          </fieldset>
+        </div>
+      </div>
+      <div class="panel__foot"><ul class="rules">
+        <li>An error says what is wrong and how to fix it, under the field, with an icon as well as colour.</li>
+        <li>Filters apply as they change. There is no “Apply” button.</li>
+      </ul></div></div>
+    </section>
+
+    <section class="sec" id="badges" aria-labelledby="h-badges">
+      <header><h2 class="t-h2" id="h-badges">Badges and chips</h2><p class="muted">A badge states a fact about a row. A chip is a filter you can press.</p></header>
+      <div class="panel">
+        <dl class="spec">
+          <dt>Health</dt><dd><span class="badge badge--healthy">Healthy</span><span class="badge badge--watch">Watch</span><span class="badge badge--risk">At risk</span><span class="badge badge--liq">Liquidatable</span></dd>
+          <dt>Reserve and Spoke state</dt><dd><span class="badge">Active</span><span class="badge badge--watch">Frozen</span><span class="badge badge--risk">Paused</span><span class="badge badge--risk">Halted</span><span class="badge badge--info">Not borrowable</span></dd>
+          <dt>Event name</dt><dd><span class="badge badge--code">Borrow</span><span class="badge badge--code">LiquidationCall</span><span class="badge badge--code">UpdateSpokeConfig</span></dd>
+          <dt>Filter chips</dt><dd><div class="chips"><button class="chip" type="button" aria-pressed="true">Core <span class="n">18</span></button><button class="chip" type="button" aria-pressed="false">Plus <span class="n">7</span></button><button class="chip" type="button" aria-pressed="false">Prime <span class="n">7</span></button></div></dd>
+          <dt>Hub colour key</dt><dd><span class="key" style="--k:var(--series-1)"><i></i>Core</span><span class="key" style="--k:var(--series-2)"><i></i>Plus</span><span class="key" style="--k:var(--series-3)"><i></i>Prime</span></dd>
+        </dl>
+      </div>
+    </section>
+
+    <section class="sec" id="tables" aria-labelledby="h-tables">
+      <header><h2 class="t-h2" id="h-tables">Tables</h2><p class="muted">The main component. Names left, numbers right, units in the header, a reading stamp in the foot.</p></header>
+      <div class="panel">
+        <div class="panel__head"><div class="grow"><h3 class="t-h2">Core Hub, USDC by Spoke</h3></div><button class="btn btn--sm" type="button" id="open-export"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Export</button></div>
+        <div class="scroll" tabindex="0" role="region" aria-label="Spoke allocation table">
+          <table class="table">
+            <thead><tr><th scope="col">Spoke</th><th scope="col">Address</th><th scope="col" class="num">Supplied, USDC</th><th scope="col" class="num">Drawn, USDC</th><th scope="col" class="num">Draw cap used</th><th scope="col">State</th></tr></thead>
+            <tbody>
+              <tr><td>Main</td><td><span class="addr"><span class="tip"><span class="mono" tabindex="0">0x94e7…c485</span><span class="tip__bubble mono" role="tooltip">0x94e7A5dCbE816e498b89aB752661904E2F56c485</span></span><button class="btn btn--icon" type="button" aria-label="Copy address of Main Spoke" data-copy="0x94e7A5dCbE816e498b89aB752661904E2F56c485"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button></span></td><td class="num">41,200,000</td><td class="num">28,750,000</td><td class="num" style="color:var(--danger-text)">93.0%</td><td><span class="badge">Active</span></td></tr>
+              <tr aria-selected="true"><td>Bluechip</td><td><span class="addr"><span class="tip"><span class="mono" tabindex="0">0x973a…5A08</span><span class="tip__bubble mono" role="tooltip">0x973a023A77420ba610f06b3858aD991Df6d85A08</span></span><button class="btn btn--icon" type="button" aria-label="Copy address of Bluechip Spoke" data-copy="0x973a023A77420ba610f06b3858aD991Df6d85A08"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button></span></td><td class="num">18,640,500</td><td class="num">9,310,000</td><td class="num">62.1%</td><td><span class="badge">Active</span></td></tr>
+              <tr><td>Forex</td><td><span class="addr"><span class="tip"><span class="mono" tabindex="0">0xD8B9…9da1</span><span class="tip__bubble mono" role="tooltip">0xD8B93635b8C6d0fF98CbE90b5988E3F2d1Cd9da1</span></span><button class="btn btn--icon" type="button" aria-label="Copy address of Forex Spoke" data-copy="0xD8B93635b8C6d0fF98CbE90b5988E3F2d1Cd9da1"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button></span></td><td class="num">2,075,000</td><td class="num">14,200,000</td><td class="num">71.0%</td><td><span class="badge badge--risk">Halted</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel__foot"><span class="t-caption">Sample data. Read at block 21,480,112, 4s ago. The second row is selected.</span><span class="muted">Rows 1 to 3 of 3</span></div>
+      </div>
+      <div class="cols-3">
+        <div class="panel" aria-label="Loading state">
+          <div class="panel__head"><h3 class="t-label">Loading</h3></div>
+          <table class="table" aria-hidden="true"><tbody>
+            <tr><td><span class="skel" style="inline-size:60%"></span></td><td><span class="skel" style="inline-size:80%;margin-left:auto"></span></td></tr>
+            <tr><td><span class="skel" style="inline-size:45%"></span></td><td><span class="skel" style="inline-size:65%;margin-left:auto"></span></td></tr>
+            <tr><td><span class="skel" style="inline-size:70%"></span></td><td><span class="skel" style="inline-size:50%;margin-left:auto"></span></td></tr>
+          </tbody></table>
+        </div>
+        <div class="panel">
+          <div class="panel__head"><h3 class="t-label">Empty</h3></div>
+          <div class="state"><svg class="icon" aria-hidden="true"><use href="#i-empty"/></svg><p>No positions below HF 1.1 in Gold Spoke at block 21,480,112.</p><button class="btn btn--quiet btn--sm" type="button">Show all positions</button></div>
+        </div>
+        <div class="panel">
+          <div class="panel__head"><h3 class="t-label">Error</h3></div>
+          <div class="state state--error"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><p>Could not load positions. The last good reading is block 21,480,098.</p><button class="btn btn--sm" type="button">Retry</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="figures" aria-labelledby="h-figures">
+      <header><h2 class="t-h2" id="h-figures">Figures</h2><p class="muted">A figure is a label, a number with its unit, and the block it was read at. No icon, no trend arrow.</p></header>
+      <div class="panel">
+        <div class="stats">
+          <div><span class="t-label">Positions below HF 1.1</span><span class="t-display">37</span><span class="t-caption">Sample data. Block 21,480,112, 4s ago</span></div>
+          <div><span class="t-label">Debt below HF 1.1</span><span class="t-display">$16.77M</span><span class="t-caption">Sample data. Block 21,480,112, 4s ago</span></div>
+          <div><span class="t-label">Outstanding deficit</span><span class="t-display">$18.4K</span><span class="t-caption" style="color:var(--warning-text);display:flex;gap:4px;align-items:center"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#i-alert"/></svg>Stale. Sample data. Block 21,479,810, 1h 2m ago</span></div>
+        </div>
+        <div class="panel__foot"><span class="t-caption">A reading older than its refresh interval is marked “Stale” with an icon and the warning colour, as in the third figure.</span></div>
+      </div>
+    </section>
+
+    <section class="sec" id="nav" aria-labelledby="h-nav">
+      <header><h2 class="t-h2" id="h-nav">Navigation</h2><p class="muted">Standard patterns: breadcrumbs for place, tabs for views of one thing, plain paging for rows.</p></header>
+      <div class="panel">
+        <div class="panel__body"><nav aria-label="Breadcrumb"><ol class="crumbs"><li><a href="#nav">Hubs</a></li><li><a href="#nav">Core</a></li><li aria-current="page">USDC</li></ol></nav></div>
+        <div class="tabs" role="tablist" aria-label="Hub asset views">
+          <button class="tab" role="tab" type="button" aria-selected="true" aria-controls="tp1" id="tb1">Spokes</button>
+          <button class="tab" role="tab" type="button" aria-selected="false" aria-controls="tp2" id="tb2" tabindex="-1">Rate</button>
+          <button class="tab" role="tab" type="button" aria-selected="false" aria-controls="tp3" id="tb3" tabindex="-1">Config changes</button>
+        </div>
+        <div class="panel__body" role="tabpanel" id="tp1" aria-labelledby="tb1"><p class="muted">Which Spokes supply and draw this asset, with cap usage.</p></div>
+        <div class="panel__body" role="tabpanel" id="tp2" aria-labelledby="tb2" hidden><p class="muted">The rate curve with the current usage marked on it.</p></div>
+        <div class="panel__body" role="tabpanel" id="tp3" aria-labelledby="tb3" hidden><p class="muted">Every change to this asset’s configuration, old value and new value.</p></div>
+        <div class="panel__foot"><span class="muted">Rows 26 to 50 of 1,204</span><span style="display:flex;gap:var(--s-2)"><button class="btn btn--sm" type="button">Previous</button><button class="btn btn--sm" type="button">Next</button></span></div>
+      </div>
+    </section>
+
+    <section class="sec" id="feedback" aria-labelledby="h-feedback">
+      <header><h2 class="t-h2" id="h-feedback">Feedback</h2><p class="muted">Banners for the state of the data, a toast to confirm a small action, a dialog only when a choice is needed.</p></header>
+      <div style="display:grid;gap:var(--s-3)">
+        <div class="banner banner--info" role="note"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><p>A reorg replaced block 21,480,110. 3 events were removed from the feed.</p></div>
+        <div class="banner banner--warning" role="note"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><p>Gold Spoke prices last changed 3h 12m ago. Readings that use them may be stale.</p></div>
+        <div class="banner banner--danger" role="note"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><p>The indexer is 14 blocks behind. Figures are as of block 21,480,098.</p><button class="btn btn--sm" type="button">Retry</button></div>
+      </div>
+      <div class="panel">
+        <dl class="spec">
+          <dt>Toast</dt><dd><div class="toast toast--static"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span>Copied 0x94e7…c485</span></div><span class="muted">Press any copy button on this page to see it appear.</span></dd>
+          <dt>Tooltip</dt><dd style="padding-top:var(--s-7)"><span class="tip is-open"><span class="mono">0x94e7…c485</span><span class="tip__bubble mono" role="tooltip">0x94e7A5dCbE816e498b89aB752661904E2F56c485</span></span><span class="muted">Shows the full value on hover and on keyboard focus.</span></dd>
+          <dt>Dialog</dt><dd><button class="btn" type="button" id="open-export-2">Open the export dialog</button><span class="muted">Closes with Escape, the Cancel button, or a click outside.</span></dd>
+        </dl>
+      </div>
+    </section>
+    <section class="sec" id="charts" aria-labelledby="h-charts">
+      <header><h2 class="t-h2" id="h-charts">Charts</h2><p class="muted">Charts support a table, they do not replace it. Series are labelled on the chart; status colours appear only where they mean status.</p></header>
+      <div class="panel">
+        <div class="panel__head"><div class="grow"><h3 class="t-h2">Usage ratio, Core Hub USDC, 30 days</h3><p class="t-caption">Sample data. Read at block 21,480,112, 4s ago. Dashed line: optimal usage, 90%.</p></div></div>
+        <div class="panel__body scroll" tabindex="0" role="region" aria-label="Usage ratio chart">
+          <svg class="chart" viewBox="0 0 680 224" role="img" aria-label="Line chart, sample data: usage ratio rises from 72% to 91% over 30 days and crosses the 90% optimal line near day 20.">
+            <path class="grid" d="M40 200H620M40 155H620M40 110H620M40 20H620"/>
+            <path class="ref" d="M40 65H620"/>
+            <text x="32" y="204" text-anchor="end">60%</text><text x="32" y="159" text-anchor="end">70%</text><text x="32" y="114" text-anchor="end">80%</text><text x="32" y="69" text-anchor="end">90%</text><text x="32" y="24" text-anchor="end">100%</text>
+            <text x="40" y="218">30 days ago</text><text x="620" y="218" text-anchor="end">Now</text>
+            <path class="line" d="M40 146L60 141.5L80 150.5L100 137L120 128L140 132.5L160 119L180 123.5L200 114.5L220 105.5L240 110L260 101L280 92L300 96.5L320 87.5L340 83L360 92L380 78.5L400 74L420 65L440 69.5L460 60.5L480 56L500 65L520 74L540 69.5L560 60.5L580 51.5L600 56L620 60.5"/>
+            <circle class="end" cx="620" cy="60.5" r="4"/>
+            <text class="val" x="630" y="64.5">91.0%</text>
+          </svg>
+        </div>
+      </div>
+      <div class="cols">
+        <div class="panel"><div class="panel__body">
+          <h3 class="t-h2">Draw cap usage, USDC by Spoke</h3>
+          <div class="meters sub">
+            <span>Main</span><div class="meter meter--over" role="img" aria-label="93% of draw cap used"><i style="--v:.93"></i></div><span style="color:var(--danger-text)">93.0%</span>
+            <span>Forex</span><div class="meter" role="img" aria-label="71% of draw cap used"><i style="--v:.71"></i></div><span>71.0%</span>
+            <span>Bluechip</span><div class="meter" role="img" aria-label="62.1% of draw cap used"><i style="--v:.621"></i></div><span>62.1%</span>
+            <span>Gold</span><div class="meter" role="img" aria-label="12.4% of draw cap used"><i style="--v:.124"></i></div><span>12.4%</span>
+          </div>
+          <p class="t-caption sub">Sample data. Read at block 21,480,112, 4s ago. Above 90% the bar and the figure switch to danger.</p>
+        </div></div>
+        <div class="panel"><div class="panel__body">
+          <h3 class="t-h2">Debt by health factor, Main Spoke</h3>
+          <div class="stack sub" style="grid-template-columns:78fr 15fr 5fr 2fr" role="img" aria-label="Stacked bar, sample data: 78% healthy, 15% watch, 5% at risk, 2% liquidatable">
+            <i style="--k:var(--positive)"></i><i style="--k:var(--warning)"></i><i style="--k:var(--danger-2)"></i><i style="--k:var(--danger)"></i>
+          </div>
+          <div class="legend">
+            <span class="key" style="--k:var(--positive)"><i></i>Healthy</span><span class="num">$412.60M</span><span class="num muted">78.0%</span>
+            <span class="key" style="--k:var(--warning)"><i></i>Watch</span><span class="num">$79.35M</span><span class="num muted">15.0%</span>
+            <span class="key" style="--k:var(--danger-2)"><i></i>At risk</span><span class="num">$26.45M</span><span class="num muted">5.0%</span>
+            <span class="key" style="--k:var(--danger)"><i></i>Liquidatable</span><span class="num">$10.58M</span><span class="num muted">2.0%</span>
+          </div>
+          <p class="t-caption sub">Sample data. Read at block 21,480,112, 4s ago. Every segment is named and numbered in the legend.</p>
+        </div></div>
+      </div>
+      <div class="panel"><div class="panel__body">
+        <h3 class="t-label">Series colours, in order</h3>
+        <p class="sub" style="display:flex;flex-wrap:wrap;gap:var(--s-5)">
+          <span class="key" style="--k:var(--series-1)"><i></i>1, Core</span><span class="key" style="--k:var(--series-2)"><i></i>2, Plus</span><span class="key" style="--k:var(--series-3)"><i></i>3, Prime</span><span class="key" style="--k:var(--series-4)"><i></i>4</span><span class="key" style="--k:var(--series-5)"><i></i>5</span><span class="key" style="--k:var(--series-6)"><i></i>6, Other</span>
+        </p>
+        <p class="t-caption sub">Not yet tested on a multi-series chart.</p>
+      </div></div>
+    </section>
+
+    <section class="sec" id="feed" aria-labelledby="h-feed">
+      <header><h2 class="t-h2" id="h-feed">Live feed</h2><p class="muted">One row per decoded event: when, what, where, how much, and the transaction.</p></header>
+      <div class="panel">
+        <ul class="feed">
+          <li><span class="t-caption">12s ago</span><span><span class="badge badge--code">Borrow</span></span><span class="what">Main Spoke, USDC, by 0x9e08…4b6c</span><span class="num">$1.20M</span><a class="mono tx" href="#feed">0x8c41…77e2</a></li>
+          <li><span class="t-caption">24s ago</span><span><span class="badge badge--code">LiquidationCall</span></span><span class="what">Lido eSpoke, wstETH seized for USDC debt</span><span class="num">$318.4K</span><a class="mono tx" href="#feed">0x1d90…a3f5</a></li>
+          <li><span class="t-caption">1m ago</span><span><span class="badge badge--code">UpdateSpokeConfig</span></span><span class="what">Core Hub, USDT, Forex Spoke: draw cap 20.0M to 35.0M</span><span class="num muted">Config</span><a class="mono tx" href="#feed">0x5b2e…09cd</a></li>
+          <li><span class="t-caption">2m ago</span><span><span class="badge badge--code">Supply</span></span><span class="what">Bluechip Spoke, WETH, by 0x2f67…e5d9</span><span class="num">$4.75M</span><a class="mono tx" href="#feed">0xe7a3…4410</a></li>
+        </ul>
+        <div class="panel__foot"><span class="t-caption">Sample data. Event names are the contract’s own, in mono.</span></div>
+      </div>
+    </section>
+
+    <section class="sec" id="motion" aria-labelledby="h-motion">
+      <header><h2 class="t-h2" id="h-motion">Motion</h2><p class="muted">Motion reports a change of state and then stops. Nothing loops, nothing animates on load.</p></header>
+      <div class="panel">
+        <table class="table">
+          <thead><tr><th scope="col">Token</th><th scope="col" class="num">Duration</th><th scope="col">Used for</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">dur-fast</td><td class="num">120ms</td><td class="muted">Hover, focus, press, switch</td></tr>
+            <tr><td class="mono">dur-panel</td><td class="num">200ms</td><td class="muted">Toast in and out</td></tr>
+            <tr><td class="mono">dur-flash</td><td class="num">600ms</td><td class="muted">A cell whose value changed over the live stream flashes accent-soft once</td></tr>
+          </tbody>
+        </table>
+        <div class="panel__foot"><span class="t-caption">Press “Advance one block” at the top of this page to see the flash. With reduced motion set, values change with no flash.</span><a href="#main">Back to the table</a></div>
+      </div>
+    </section>
+
+    <section class="sec" id="voice" aria-labelledby="h-voice">
+      <header><h2 class="t-h2" id="h-voice">Voice</h2><p class="muted">Plain and exact. The number comes before the adjective, and the adjective is usually cut.</p></header>
+      <div class="panel">
+        <table class="say">
+          <thead><tr><th scope="col">We write</th><th scope="col">We do not write</th></tr></thead>
+          <tbody>
+            <tr><td>HF 1.03 at block 21,480,112</td><td>Critical position!</td></tr>
+            <tr><td>Draw cap 93.0% used: Main Spoke, USDC</td><td>Cap almost full</td></tr>
+            <tr><td>No positions below HF 1.1 in Gold Spoke.</td><td>Nothing to see here</td></tr>
+            <tr><td>Could not load positions. The last good reading is block 21,480,098. Retry</td><td>Oops! Something went wrong</td></tr>
+            <tr><td>Main Spoke reported a deficit of $18.4K in USDC.</td><td>Bad debt alert</td></tr>
+            <tr><td>Export CSV</td><td>Submit</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="cols">
+        <div class="panel">
+          <table class="table table--compact">
+            <thead><tr><th scope="col">Value</th><th scope="col" class="num">Format</th></tr></thead>
+            <tbody>
+              <tr><td>USD, large</td><td class="num">$16.77M</td></tr>
+              <tr><td>USD, small</td><td class="num">$18.4K</td></tr>
+              <tr><td>Token amount</td><td class="num">41,200,000</td></tr>
+              <tr><td>Percent</td><td class="num">93.0%</td></tr>
+              <tr><td>Health factor</td><td class="num">1.03</td></tr>
+              <tr><td>Block</td><td class="num">21,480,112</td></tr>
+              <tr><td>Age</td><td class="num">4s ago, 3h 12m ago</td></tr>
+              <tr><td>Address</td><td class="num mono">0x94e7…c485</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel"><div class="panel__body">
+          <ul class="rules">
+            <li>Protocol terms keep the protocol’s spelling: Hub, Spoke, reserve, drawn, premium, deficit.</li>
+            <li>A state number is never shown without its block.</li>
+            <li>Errors say what failed, what the reader is looking at instead, and the one thing to do.</li>
+            <li>Empty states say what is absent and where, not that the screen is empty.</li>
+            <li>No exclamation marks, no emoji, no “please”.</li>
+            <li>Sample data is always labelled as sample data.</li>
+          </ul>
+        </div></div>
+      </div>
+    </section>
+
+    <dialog class="dialog" id="export" aria-labelledby="export-title">
+      <form method="dialog">
+        <div class="dialog__body">
+          <h2 class="t-h2" id="export-title">Export this table</h2>
+          <p class="muted">3 rows as read at block 21,480,112. The block is written into the file.</p>
+          <fieldset class="seg" style="width:fit-content"><legend class="visually-hidden">Format</legend>
+            <input type="radio" name="fmt" id="x1" checked><label for="x1">CSV</label>
+            <input type="radio" name="fmt" id="x2"><label for="x2">JSON</label>
+          </fieldset>
+        </div>
+        <div class="dialog__foot"><button class="btn" type="submit" value="cancel">Cancel</button><button class="btn btn--primary" type="submit" value="export">Export</button></div>
+      </form>
+    </dialog>
+    <footer class="foot">
+      <p>aave.watch is an independent project. Not affiliated with Aave Labs or the Aave DAO.</p>
+    </footer>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span></span></div>
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const fmt = (n) => n.toLocaleString('en-US');
+
+  // theme
+  const root = document.documentElement;
+  if (root.dataset.theme === 'light') $('#th-light').checked = true;
+  $('#theme').addEventListener('change', (e) => { root.dataset.theme = e.target.value; try { localStorage.setItem('aw-theme', e.target.value); } catch (_) {} });
+
+  // positions table: health badges, filter, sort, advance
+  const body = $('#pos tbody'), rows = () => $$('tr', body);
+  const band = (hf) => hf >= 1.5 ? ['healthy', 'Healthy', 'positive'] : hf >= 1.1 ? ['watch', 'Watch', 'warning'] : hf >= 1 ? ['risk', 'At risk', 'danger'] : ['liq', 'Liquidatable', 'danger'];
+  let filter = 'all';
+  const paint = () => {
+    const counts = { all: 0, liq: 0, risk: 0, watch: 0, healthy: 0 };
+    rows().forEach((tr) => {
+      const cell = $('.hf', tr), [key, label, tone] = band(+cell.dataset.v);
+      cell.textContent = (+cell.dataset.v).toFixed(2);
+      cell.style.color = `var(--${tone}-text)`;
+      const b = $('.badge', tr); b.className = `badge badge--${key}`; b.textContent = label;
+      tr.dataset.band = key; counts.all++; counts[key]++;
+      tr.hidden = filter !== 'all' && filter !== key;
+    });
+    $$('[data-count]').forEach((n) => { n.textContent = counts[n.dataset.count]; });
+    $('#pos-empty').hidden = rows().some((tr) => !tr.hidden);
+  };
+  $$('[data-filter]').forEach((chip) => chip.addEventListener('click', () => {
+    filter = chip.dataset.filter;
+    $$('[data-filter]').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
+    paint();
+  }));
+  const heads = $$('#pos th'); let sortCol = 5, sortDir = 'ascending';
+  const applySort = () => {
+    heads.forEach((t, i) => i === sortCol ? t.setAttribute('aria-sort', sortDir) : t.removeAttribute('aria-sort'));
+    const val = (tr) => { const c = tr.children[sortCol]; return c.dataset.v !== undefined ? +c.dataset.v : c.textContent; };
+    rows().sort((a, b) => { const x = val(a), y = val(b); return (x > y ? 1 : x < y ? -1 : 0) * (sortDir === 'ascending' ? 1 : -1); }).forEach((tr) => body.append(tr));
+  };
+  heads.forEach((th, i) => { const btn = $('.sort', th); if (btn) btn.addEventListener('click', () => { sortDir = sortCol === i && sortDir === 'ascending' ? 'descending' : 'ascending'; sortCol = i; applySort(); }); });
+  const steps = [[-0.01, -0.02, 0.01, -0.04, 0, 0.03], [0.03, -0.02, -0.03, -0.05, -0.01, 0], [-0.02, 0.04, 0.02, 0.09, 0.01, -0.03]];
+  const order = rows(); let block = 21480112, step = 0;
+  $('#advance').addEventListener('click', () => {
+    block++;
+    order.forEach((tr, i) => {
+      const cell = $('.hf', tr), d = steps[step % steps.length][i]; if (!d) return;
+      cell.dataset.v = (+cell.dataset.v + d).toFixed(2);
+      cell.classList.remove('is-changed'); void cell.offsetWidth; cell.classList.add('is-changed');
+    });
+    step++;
+    $('#pos-block').textContent = fmt(block); $('#pos-age').textContent = '0s ago';
+    $$('[data-block]').forEach((n) => { n.textContent = fmt(block); });
+    paint(); applySort();
+  });
+  paint();
+
+  // tabs
+  const tabs = $$('[role="tab"]');
+  const pick = (tab) => tabs.forEach((t) => { const on = t === tab; t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1; $('#' + t.getAttribute('aria-controls')).hidden = !on; });
+  tabs.forEach((tab, i) => {
+    tab.addEventListener('click', () => pick(tab));
+    tab.addEventListener('keydown', (e) => { const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0; if (!d) return; const next = tabs[(i + d + tabs.length) % tabs.length]; pick(next); next.focus(); });
+  });
+
+  // copy and toast
+  const toast = $('#toast'); let timer;
+  const say = (msg) => { $('span', toast).textContent = msg; toast.classList.add('is-in'); clearTimeout(timer); timer = setTimeout(() => toast.classList.remove('is-in'), 2400); };
+  $$('[data-copy]').forEach((btn) => btn.addEventListener('click', () => {
+    const v = btn.dataset.copy, short = v.slice(0, 6) + '…' + v.slice(-4);
+    (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => say('Copied ' + short), () => say('Could not copy. Select the address and copy it by hand.'));
+  }));
+
+  // dialog
+  const dlg = $('#export');
+  ['#open-export', '#open-export-2'].forEach((id) => $(id).addEventListener('click', () => dlg.showModal()));
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close('cancel'); });
+  dlg.addEventListener('close', () => { if (dlg.returnValue === 'export') say('Nothing was exported: this page is a specimen.'); });
+
+  // current section in the rail
+  const links = $$('.rail nav a'), byId = new Map(links.map((a) => [a.getAttribute('href').slice(1), a]));
+  const io = new IntersectionObserver((es) => es.forEach((e) => { if (!e.isIntersecting) return; links.forEach((a) => a.removeAttribute('aria-current')); const a = byId.get(e.target.id); if (a) a.setAttribute('aria-current', 'true'); }), { rootMargin: '-10% 0px -80% 0px' });
+  $$('section[id]').forEach((s) => io.observe(s));
+})();
+</script>
+</body>
+</html>

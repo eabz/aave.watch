@@ -1,0 +1,14 @@
+.DS_Store
+target/
+node_modules/
+dist/
+.wrangler/
+worker-configuration.d.ts
+.env*
+.dev.vars*
+*.local
+*.tsbuildinfo
+# local tool state
+.claude/
+.serena/
+.impeccable/hook.cache.json

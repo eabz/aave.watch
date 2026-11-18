@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+# pnpm 11 refuses install scripts unless approved; these two fetch platform binaries.
+allowBuilds:
+  esbuild: true
+  workerd: true
