@@ -32,4 +32,4 @@ gets a row here and a line in the README.
 - UI uses the tokens in `docs/branding.md` only. No Aave logos or proprietary Aave fonts.
 - `docs/branding.md` and `docs/visual-identity.html` change together.
 - Preview the identity page with the `docs` server in `.claude/launch.json`.
-- Status: docs only, no code yet.
+- Status: scaffold only. The crates and apps build and do nothing yet.

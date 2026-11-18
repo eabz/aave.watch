@@ -12,4 +12,4 @@ Monitoring and real-time app for Aave v4.
 
 For contributors and coding agents: [AGENTS.md](AGENTS.md) (also loaded by [CLAUDE.md](CLAUDE.md)).
 
-Status: docs only. No code yet.
+Status: scaffold only. `cargo build` for `crates/*`; `pnpm install`, then `pnpm --filter web build` and `pnpm --filter worker test` for `apps/*`.

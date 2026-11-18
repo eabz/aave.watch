@@ -46,6 +46,10 @@ Turborepo, no Nx.
 
 Serving the web build from the same Worker keeps one origin: no CORS, one deploy.
 
+Deploy: `pnpm --filter worker run deploy` builds `apps/web`, then uploads the Worker and the assets.
+Live at https://aave-watch.kindynos.workers.dev. Cloudflare Workers Builds runs the same command on
+every push to `main` (root directory `/`, deploy command `pnpm --filter worker run deploy`).
+
 ## Indexer
 
 One process per chain. Rust with `alloy` (RPC, ABI decoding), `clickhouse` and `redis` crates.
@@ -180,7 +184,9 @@ interface otherwise).
 
 `shortcut: memory limits are package defaults, and each service assumes it owns the RAM. Cap Dragonfly (--maxmemory) and ClickHouse (max_server_memory_usage) once backfill shows real usage.`
 
-Not installed yet: `cloudflared` and the Rust toolchain.
+Rust 1.100 is installed with `rustup` for `root` (`/root/.cargo/bin`); upgrade with `rustup update`. The repo is cloned at `/root/aave.watch`.
+
+Not installed yet: `cloudflared`.
 
 Hardening, applied 2026-11-18:
 
