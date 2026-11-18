@@ -148,14 +148,19 @@ interface otherwise).
 
 Rust 1.100 is installed with `rustup` for `root` (`/root/.cargo/bin`); upgrade with `rustup update`. The repo is cloned at `/root/aave.watch`.
 
-The API runs as the systemd unit `aave-watch-api` (binary `/usr/local/bin/aave-watch-api`, built from
-`/root/aave.watch-api`, a copy of the working tree without `apps/` and `docs/`), on `127.0.0.1:8080`,
-under a systemd dynamic user. Installed 2026-11-18. See [api.md](api.md).
+Every Rust service is built from that clone and installed by one script, `infra/deploy.sh`: it
+builds the workspace, installs the units and the binaries, applies the ClickHouse migrations, loads
+the registry and restarts the services. Run it after pulling `main`. `pnpm` 11 is installed globally
+with `npm` for building `apps/*` on the box.
+
+The API runs as the systemd unit `aave-watch-api` (binary `/usr/local/bin/aave-watch-api`), on
+`127.0.0.1:8080`, under a systemd dynamic user. Installed 2026-11-18. See [api.md](api.md).
 
 The fetcher runs as the systemd unit `aave-watch-fetch` (binary `/usr/local/bin/aave-watch-indexer fetch`,
 unit file in `infra/systemd/`, `DynamicUser`). Its RPC URLs, which carry the provider key, are in
-`/etc/aave-watch/fetch.env` (root only; template in `infra/systemd/fetch.env.example`). It is built
-from `/root/aave.watch-dev`, a copy of the working tree.
+`/etc/aave-watch/fetch.env` (root only; template in `infra/systemd/fetch.env.example`). The
+processor is the same binary as the unit `aave-watch-process` (`aave-watch-indexer process`); it has
+no RPC URL.
 
 `cloudflared` 2026.11.1 is installed from Cloudflare's apt repo (`pkg.cloudflare.com`) and runs as the
 systemd unit `cloudflared`, connected as the tunnel `aave-watch-box`. It makes outbound connections

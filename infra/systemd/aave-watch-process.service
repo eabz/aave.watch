@@ -1,0 +1,22 @@
+# The processor: raw rows to core.*. Never talks to a node. Spec: docs/data-pipeline.md.
+# Install as /etc/systemd/system/aave-watch-process.service.
+[Unit]
+Description=aave.watch processor (raw to core)
+After=network-online.target clickhouse-server.service dragonfly.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/aave-watch-indexer process
+Environment=CLICKHOUSE_URL=http://127.0.0.1:8123
+Environment=DRAGONFLY_URL=redis://127.0.0.1:6379
+Restart=always
+RestartSec=5
+# No account to manage, and no access to anything it does not need.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

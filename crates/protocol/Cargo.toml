@@ -6,3 +6,7 @@ edition = "2024"
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.2.1"
+serde_json = "1.0.154"
+alloy-dyn-abi = "1.7.3"
+alloy-json-abi = "1.7.3"
+alloy-primitives = "1.7.3"

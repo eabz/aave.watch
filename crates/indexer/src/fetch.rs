@@ -26,7 +26,15 @@ pub async fn run() -> Result<()> {
     for chain in registry::chains() {
         let var = format!("RPC_HTTP_{}", chain.chain_id);
         match env::var(&var) {
-            Ok(url) => drop(tasks.spawn(run_chain(chain, Rpc::new(url), ch.clone()))),
+            Ok(url) => {
+                let rpc = Rpc::new(url);
+                // The tip holds its health factor reads until their block settles; the calls
+                // walk must not pass a block whose reads are still held. See tip.rs.
+                let held_below = std::sync::Arc::new(AtomicU64::new(u64::MAX));
+                tasks.spawn(crate::calls::run_chain(chain.clone(), rpc.clone(), ch.clone(), held_below.clone()));
+                tasks.spawn(crate::tip::run_chain(chain.clone(), rpc.clone(), ch.clone(), held_below));
+                tasks.spawn(run_chain(chain, rpc, ch.clone()));
+            }
             Err(_) => eprintln!("{}: {var} is not set, chain skipped", chain.name),
         }
     }
@@ -70,7 +78,7 @@ async fn round(
     add_spoke: &str,
 ) -> Result<bool> {
     let id = chain.chain_id;
-    let start = ch.cursor(id).await?.map_or(first, |c| c + 1);
+    let start = ch.cursor(id, "raw").await?.map_or(first, |c| c + 1);
     let settled = header(&rpc.call("eth_getBlockByNumber", json!([chain.settle_tag, false])).await?)?;
     if settled.number < start {
         return Ok(false);
@@ -119,7 +127,7 @@ async fn round(
         // A Spoke is deployed and configured before a Hub announces it. Fetch that history for
         // it alone, back to the chain's start block, before the walk goes on. Rare, and one
         // request per MAX_RANGE blocks.
-        let upto = ch.cursor(id).await?.unwrap_or(0);
+        let upto = ch.cursor(id, "raw").await?.unwrap_or(0);
         let (lookback, mut from, mut earlier) = (AtomicU64::new(MAX_RANGE), first, 0);
         while from <= upto {
             let to = (from + lookback.load(Relaxed) - 1).min(upto);
@@ -130,7 +138,7 @@ async fn round(
         watch.extend(new);
     }
     if stored > 0 || settled.number - start >= 1_000 {
-        let at = ch.cursor(id).await?.unwrap_or(0);
+        let at = ch.cursor(id, "raw").await?.unwrap_or(0);
         eprintln!("{}: {stored} logs stored, raw cursor at {at} (settled {})", chain.name, settled.number);
     }
     Ok(true)
@@ -199,7 +207,7 @@ fn topic_address(word: &str) -> String {
 }
 
 /// A `raw.logs` row: the log as the node returned it, hex lowercased.
-fn log_row(chain_id: u32, log: &Value, block_time: u64) -> Result<Value> {
+pub(crate) fn log_row(chain_id: u32, log: &Value, block_time: u64) -> Result<Value> {
     let text = |key: &str| {
         log[key].as_str().map(str::to_lowercase).with_context(|| format!("log without {key}"))
     };
@@ -221,11 +229,11 @@ fn log_row(chain_id: u32, log: &Value, block_time: u64) -> Result<Value> {
     }))
 }
 
-struct Header {
-    number: u64,
-    hash: String,
-    parent_hash: String,
-    time: u64,
+pub(crate) struct Header {
+    pub(crate) number: u64,
+    pub(crate) hash: String,
+    pub(crate) parent_hash: String,
+    pub(crate) time: u64,
 }
 
 impl Header {
@@ -235,7 +243,7 @@ impl Header {
     }
 }
 
-fn header(block: &Value) -> Result<Header> {
+pub(crate) fn header(block: &Value) -> Result<Header> {
     let text = |key: &str| {
         block[key].as_str().map(str::to_lowercase).with_context(|| format!("block without {key}"))
     };
@@ -252,7 +260,7 @@ fn hex_u64(v: &Value) -> Result<u64> {
     u64::from_str_radix(s.trim_start_matches("0x"), 16).with_context(|| format!("bad quantity {s}"))
 }
 
-fn env_u64(name: &str, default: u64) -> u64 {
+pub(crate) fn env_u64(name: &str, default: u64) -> u64 {
     env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
@@ -261,7 +269,7 @@ fn short(e: impl std::fmt::Display) -> String {
 }
 
 #[derive(Clone)]
-struct Rpc {
+pub(crate) struct Rpc {
     http: reqwest::Client,
     url: String,
 }
@@ -290,7 +298,7 @@ impl Rpc {
         bail!("rpc: gave up after 5 attempts")
     }
 
-    async fn call(&self, method: &str, params: Value) -> Result<Value> {
+    pub(crate) async fn call(&self, method: &str, params: Value) -> Result<Value> {
         let reply = self.post(&json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})).await?;
         if let Some(e) = reply.get("error") {
             bail!("{method}: {}", short(e));
@@ -332,7 +340,7 @@ impl Rpc {
     /// One range, one `eth_getLogs` per `FETCH_MAX_ADDRESSES` addresses (0, the default: a single
     /// request for all of them). Public nodes cap the filter at about 10 addresses; a paid
     /// endpoint with no cap costs one request per range.
-    async fn logs_once(&self, addresses: &[String], from: u64, to: u64) -> Result<Vec<Value>> {
+    pub(crate) async fn logs_once(&self, addresses: &[String], from: u64, to: u64) -> Result<Vec<Value>> {
         let per_request = match env_u64("FETCH_MAX_ADDRESSES", 0) {
             0 => addresses.len().max(1),
             n => n as usize,
@@ -359,7 +367,7 @@ impl Rpc {
 
     /// Block time for every block that has a log. Free when the node puts `blockTimestamp` on the
     /// log; otherwise one batched header request, and those headers go to `raw.blocks`.
-    async fn block_times(&self, logs: &[Value]) -> Result<(HashMap<u64, u64>, Vec<Header>)> {
+    pub(crate) async fn block_times(&self, logs: &[Value]) -> Result<(HashMap<u64, u64>, Vec<Header>)> {
         let mut times = HashMap::new();
         let mut missing = BTreeSet::new();
         for log in logs {
@@ -413,18 +421,18 @@ impl Rpc {
 
 /// ClickHouse over its HTTP interface. Inserts are JSONEachRow and acknowledged when written.
 #[derive(Clone)]
-struct ClickHouse {
+pub(crate) struct ClickHouse {
     http: reqwest::Client,
     url: String,
 }
 
 impl ClickHouse {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let url = env::var("CLICKHOUSE_URL").unwrap_or_else(|_| "http://127.0.0.1:8123".into());
         Self { http: reqwest::Client::new(), url }
     }
 
-    async fn query(&self, sql: &str, body: String) -> Result<String> {
+    pub(crate) async fn query(&self, sql: &str, body: String) -> Result<String> {
         // A query with no data goes in the body: ClickHouse refuses a POST with an empty one.
         let request = match body.is_empty() {
             true => self.http.post(&self.url).body(sql.to_string()),
@@ -439,7 +447,7 @@ impl ClickHouse {
         Ok(text)
     }
 
-    async fn insert(&self, table: &str, rows: &[Value]) -> Result<()> {
+    pub(crate) async fn insert(&self, table: &str, rows: &[Value]) -> Result<()> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -447,16 +455,49 @@ impl ClickHouse {
         self.query(&format!("INSERT INTO {table} FORMAT JSONEachRow"), body).await.map(drop)
     }
 
-    /// Last block whose logs are all stored, if the chain has been started.
-    async fn cursor(&self, chain_id: u32) -> Result<Option<u64>> {
+    /// Last block a stream (`raw`, `calls`, `core`) has completed, if it has started.
+    pub(crate) async fn cursor(&self, chain_id: u32, stream: &str) -> Result<Option<u64>> {
         // max(): the cursor only moves forward, and two writes can share a timestamp.
         let sql = format!(
-            "SELECT max(block_number), count() FROM meta.cursor WHERE chain_id = {chain_id} AND stream = 'raw' FORMAT TSV"
+            "SELECT max(block_number), count() FROM meta.cursor WHERE chain_id = {chain_id} AND stream = '{stream}' FORMAT TSV"
         );
         let text = self.query(&sql, String::new()).await?;
         let mut cols = text.split_whitespace();
         let (max, count) = (cols.next().context("cursor query")?, cols.next().context("cursor query")?);
         Ok((count != "0").then(|| max.parse()).transpose()?)
+    }
+
+    /// Stored logs of `[from, to]` in chain order, each once. `registry_only` keeps just the
+    /// events `World` is rebuilt from.
+    pub(crate) async fn logs(&self, chain_id: u32, from: u64, to: u64, registry_only: bool) -> Result<Vec<Value>> {
+        let only = match registry_only {
+            true => {
+                let topics: Vec<String> = crate::model::REGISTRY_EVENTS
+                    .iter()
+                    .filter_map(|(kind, event)| abi::topic0(kind, event))
+                    .map(|t| format!("'{t}'"))
+                    .collect();
+                format!("AND topic0 IN ({})", topics.join(","))
+            }
+            false => String::new(),
+        };
+        let sql = format!(
+            "SELECT block_number, toUnixTimestamp(block_time) AS t, log_index, tx_hash, address, topic0, topic1, topic2, topic3, data \
+             FROM raw.logs WHERE chain_id = {chain_id} AND block_number BETWEEN {from} AND {to} {only} \
+             ORDER BY block_number, log_index LIMIT 1 BY block_number, log_index FORMAT JSONEachRow"
+        );
+        self.query(&sql, String::new()).await?.lines().map(|l| Ok(serde_json::from_str(l)?)).collect()
+    }
+
+    /// The last block that has stored calls at or below `upto`, and its time.
+    pub(crate) async fn last_call(&self, chain_id: u32, upto: u64) -> Result<Option<(u64, u64)>> {
+        let sql = format!(
+            "SELECT max(block_number), toUnixTimestamp(max(block_time)), count() FROM raw.calls \
+             WHERE chain_id = {chain_id} AND block_number <= {upto} FORMAT TSV"
+        );
+        let text = self.query(&sql, String::new()).await?;
+        let cols: Vec<u64> = text.split_whitespace().map(str::parse).collect::<Result<_, _>>()?;
+        Ok((cols.len() == 3 && cols[2] > 0).then(|| (cols[0], cols[1])))
     }
 }
 

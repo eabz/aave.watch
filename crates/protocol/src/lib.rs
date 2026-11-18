@@ -2,4 +2,5 @@
 
 pub mod keys;
 pub mod abi;
+pub mod codec;
 pub mod registry;

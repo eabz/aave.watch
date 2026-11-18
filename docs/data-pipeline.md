@@ -30,8 +30,13 @@ not code: chain id, block time, the seed Hubs with their first block, and `settl
 | Avalanche | 43114 | 1 to 2s | Core | 12 | `finalized` | about 7 blocks, seconds |
 | Arc | 5042 | 0.5s | Core | 8 | `finalized` | 0 blocks |
 
-Lags measured on public RPCs on 2026-11-18. RPC endpoints and the Multicall3 address are
-deployment config (environment), not in the registry.
+Lags measured on public RPCs on 2026-11-18. RPC endpoints are deployment config (environment),
+not in the registry.
+
+**Multicall.** Multicall3 is not deployed at its usual address on these chains, and Multicall2 only
+on Ethereum. So no deployment is relied on: every `eth_call` carries Multicall2's runtime bytecode
+as a state override at a fixed address (`crates/protocol/abi/multicall2.hex`, `codec::MULTICALL`).
+Checked 2026-11-18 on all four chains, at the head and at old blocks.
 
 ### Finality, and why a tag instead of a block count
 
@@ -71,7 +76,7 @@ Two processes, one task group per chain in each. The fetcher is the only one wit
 processor can be stopped, fixed and restarted without dropping a node connection or asking a node
 for anything twice; it resumes from its own cursor over raw.
 
-1. **Fetch.** Logs for the watched addresses and view calls through Multicall3 at a fixed block.
+1. **Fetch.** Logs for the watched addresses and view calls through a multicall at a fixed block.
    How they are fetched depends on how far behind the chain is: see
    [From backfill to live](#from-backfill-to-live).
 2. **Raw.** The block header, each log (address, topics, data) and each call (target, calldata,
@@ -184,10 +189,38 @@ the raw cursor, then switches to reading `raw:{chain_id}`. On its first block fr
 loads the `*_latest` tables into Dragonfly, so the tip starts from full state. If it falls behind
 the stream's retention it goes back to ClickHouse the same way.
 
-**Built so far** (`crates/indexer/src/fetch.rs`, unit `aave-watch-fetch`): `catching_up` for logs,
-on all four chains, with Spoke discovery. It keeps walking as the settle tag advances, so
-`raw.logs` trails each chain by its settle lag. Not built: view calls and the scheduler, the
-WebSocket `live` state, the `raw:{chain_id}` stream, and the processor.
+**Built so far.** Both processes run on all four chains.
+
+| Piece | Code | What it does |
+|---|---|---|
+| Logs, settled | `fetch.rs` | `catching_up` for logs with Spoke discovery; keeps walking as the settle tag advances |
+| Calls, settled | `calls.rs` | walks from the `calls` cursor to the `raw` cursor over the stored logs, plans the views of each block (`model.rs`) and stores one multicall per block in `raw.calls` |
+| Tip | `tip.rs` | `live`: follows the head and appends unsettled batches to `raw:{chain_id}`; owns the health factor tiers (`due:{chain_id}`) |
+| Processor, settled | `process.rs` | `raw.*` to `core.*` and `meta.assets`, `meta.reserves`, `meta.tokens`, from the `core` cursor to the `calls` cursor |
+| Processor, tip | `live.rs` | `raw:{chain_id}` to the latest-state keys, the rankings and the `feed`, `state`, `risk`, `chain` streams |
+
+Where the code is simpler than the design above, on purpose:
+
+- `shortcut: three cursors, not two.` Calls were added after the logs were backfilled, so they
+  have their own cursor (`calls`). "Complete up to here" for the processor is the `calls` cursor.
+- `shortcut: the head is polled over HTTP every TIP_INTERVAL_MS (3s, or the block time if longer), not pushed over a WebSocket.`
+  Logs of the blocks since the last poll come from one `eth_getLogs`; state is read once per poll,
+  at the head, so an event is priced with a reading up to one interval old. Move to
+  `eth_subscribe` and per-block reads when that matters.
+- `shortcut: settled blocks are fetched again by the catch-up walk instead of being copied from raw:{chain_id}.`
+  Each live block's requests are paid twice, and losing Dragonfly needs no recovery path. Copy
+  from the stream when the request count matters.
+- Health factor reads by tier are the one thing only the tip reads. The fetcher holds them until
+  their block is settled, then writes them to `raw.calls` (`reason = tier`); the calls walk never
+  passes a block whose reads are still held. So `user_account_latest` is at most one tier interval
+  old once a chain is live, and a fetcher restart loses only the reads it was holding.
+- `shortcut: a reorg publishes reorg {from_block} and the replacing blocks; latest-state keys written by the replaced blocks stay until the next read overwrites them.`
+- `shortcut: historical state is read at blocks with events and once an hour, with prices from getReservesPrices; if one source of a Spoke reverts, that Spoke has no price at that block.`
+  Read per reserve (`getReservePrice`) if that is seen in `raw.calls` (`ok = 0`).
+- Not built: `reparse` as a command (drop the `core` partitions and reset the `core` cursor by
+  hand), `lock:*`, `q:*`, `price_sources`, `labels`, `canonical`, `parser_runs`, and discovery of
+  interest rate strategies and access managers. After a backfill or reparse run
+  `infra/clickhouse/rollup_backfill.sh`.
 
 ### RPC budget
 
@@ -197,7 +230,7 @@ What a node is asked for, so the cost can be counted in one place:
 |---|---|---|
 | Logs | one `eth_getLogs` per range, all addresses | none: pushed by the `logs` subscription |
 | Headers | none if the node returns `blockTimestamp` on logs (Ethereum, Base and Arc on QuickNode do; Avalanche does not); else one batched `eth_getBlockByNumber` for blocks that have rows | none: pushed by `newHeads` |
-| State | one Multicall3 `eth_call` per block that had an event, plus the hourly heartbeat | at most one Multicall3 `eth_call` per block |
+| State | one multicall `eth_call` per block that had an event, plus the hourly heartbeat | at most one multicall `eth_call` per block |
 | Settled tag | one read per round | one read per interval |
 
 Rules that keep it there: no field getters, only the struct getters above; calls are chunked by
@@ -333,7 +366,7 @@ CREATE TABLE raw.calls (
   target LowCardinality(String), selector LowCardinality(String),
   args String,                        -- calldata after the selector
   ok UInt8, result String CODEC(ZSTD(3)),
-  reason LowCardinality(String),      -- why it was read: event, heartbeat, tier, backfill
+  reason LowCardinality(String),      -- why it was read: event, heartbeat, tier, meta
   inserted_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(inserted_at)
 PARTITION BY (chain_id, toYYYYMM(block_time))
@@ -432,7 +465,7 @@ added when a panel needs one, not before.
 | `tokens` | `chain_id, address` | symbol, name, decimals, canonical asset, logo path |
 | `price_sources` | `chain_id, spoke, reserve_id` | feed address, feed kind, decimals, since block |
 | `labels` | `chain_id, address` | label, category |
-| `cursor` | `chain_id, stream` | last complete settled block and hash. Two streams: `raw` (fetcher) and `core` (processor) |
+| `cursor` | `chain_id, stream` | last complete settled block and hash. Three streams: `raw` (fetcher, logs), `calls` (fetcher, view calls) and `core` (processor) |
 | `parser_runs` | `chain_id, parser_version, range` | when a reparse ran and over what |
 
 All `ReplacingMergeTree`. `tokens`, `hubs`, `spokes`, `reserves` and `labels` are also exposed as
@@ -481,7 +514,7 @@ whole. Names are defined once, in `crates/protocol/src/keys.rs`.
 | `state:{chain_id}` | one changed state row: hub asset, hub × spoke, reserve, price | 1 hour |
 | `risk:{chain_id}` | a position crossing a health band, or a liquidation | 1 hour |
 | `chain:{chain_id}` | `head`, `settled`, `reorg` | 1 hour |
-| `raw:{chain_id}` | one unsettled block as fetched: header, logs, call results. Written by the fetcher, read by the processor, not relayed to browsers | 1 hour |
+| `raw:{chain_id}` | one batch of unsettled blocks as fetched: the head's header, the logs since the last batch, the call results at the head. Written by the fetcher, read by the processor (its place is `tipcursor:{chain_id}`), not relayed to browsers | 1 hour |
 
 Every entry is one JSON field with the same envelope:
 

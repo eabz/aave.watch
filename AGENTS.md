@@ -34,5 +34,5 @@ gets a row here and a line in the README.
 - UI uses the tokens in `docs/branding.md` only. No Aave logos or proprietary Aave fonts.
 - `docs/branding.md` and `docs/visual-identity.html` change together.
 - Preview the identity page with the `docs` server in `.claude/launch.json`.
-- Status: the fetcher (`indexer fetch`) stores raw logs for all four chains; no processor yet. See
-  "Built so far" in docs/data-pipeline.md.
+- Status: the whole pipeline runs on all four chains: logs, view calls, the processor and the live
+  tip. What is simplified or missing is listed under "Built so far" in docs/data-pipeline.md.

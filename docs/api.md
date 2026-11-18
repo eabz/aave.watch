@@ -60,6 +60,11 @@ data: {"v":1,"chain_id":1,"block":21480112,"block_hash":"0x…","log_index":14,"
 ```
 
 - `event` is the topic. `data` is the envelope the indexer wrote, unchanged.
+- The envelope's `type` says what its `data` is, with the fields of the endpoint that serves the
+  same row: on `feed`, `event` (a `/v1/events` row); on `state`, `hub_asset`, `hub_spoke`,
+  `reserve` or `price`; on `risk`, `band` (a `/v1/positions` row plus `from_band` and `to_band`:
+  `liquidatable`, `below_1_1`, `below_1_5`, `healthy`) or `event` (a `LiquidationCall`); on
+  `chain`, `head`, `settled` or `reorg`.
 - `id` is the stream name and the entry id. The browser sends the last one back as `Last-Event-ID`
   when it reconnects, and the API replays what was missed (up to one hour).
 - Replay across several topics is by time: after a reconnect an item may arrive twice. Items are
@@ -91,7 +96,7 @@ Environment variables of `crates/api`:
   and tokens are written by the indexer, not by this command.
 - On the server it runs as the systemd unit `aave-watch-api`
   ([infra/systemd/aave-watch-api.service](../infra/systemd/aave-watch-api.service)), bound to
-  `127.0.0.1:8080`, built from `/root/aave.watch-api`.
+  `127.0.0.1:8080`, built from the repo at `/root/aave.watch` by `infra/deploy.sh`.
 - Locally: apply the migrations to a ClickHouse, load
   [infra/clickhouse/dev/seed.sql](../infra/clickhouse/dev/seed.sql) (sample data, never on the
   server), run the API, then `pnpm --filter web dev` (it proxies `/v1` to `127.0.0.1:8080`).

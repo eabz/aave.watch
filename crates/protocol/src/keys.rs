@@ -24,6 +24,11 @@ pub fn state(chain_id: u32) -> String { format!("state:{chain_id}") }
 pub fn risk(chain_id: u32) -> String { format!("risk:{chain_id}") }
 pub fn chain(chain_id: u32) -> String { format!("chain:{chain_id}") }
 
+/// One batch of unsettled blocks as fetched. Written by the fetcher, read by the processor.
+pub fn raw(chain_id: u32) -> String { format!("raw:{chain_id}") }
+/// String: the last `raw:{chain_id}` entry the processor has turned into tip state.
+pub fn tip_cursor(chain_id: u32) -> String { format!("tipcursor:{chain_id}") }
+
 // Latest state.
 /// Hash: number, hash, time, settled.
 pub fn head(chain_id: u32) -> String { format!("head:{chain_id}") }
