@@ -108,8 +108,9 @@ Two corrections to what the Aave docs say:
 
 - **Hubs and Spokes are behind proxies.** Every Hub and Spoke address is an ERC-1967 proxy; the code
   sits in an implementation (`HubInstance`, `SpokeInstance`, ...). The docs call the Hub immutable.
-  An upgrade can change the event set, so the indexer watches the proxies' `Upgraded` event and
-  stops parsing that contract until the ABI is reviewed. Raw logs keep flowing.
+  An upgrade can change the event set. The proxies' `Upgraded` event is parsed like any other and
+  shows in the config timeline; parsing is not stopped by it, so review the ABIs when one appears.
+  Raw logs keep flowing either way.
 - **Tokenization Spoke events** are the ERC-4626 and ERC-20 ones: `Deposit`, `Withdraw`, `Transfer`,
   `Approval`, plus `SetTokenizationSpokeImmutables`. The Treasury Spoke emits only ownership events.
 

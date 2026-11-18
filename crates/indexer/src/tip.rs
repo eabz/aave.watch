@@ -7,7 +7,7 @@
 //! reads that stream. ClickHouse is not written here: settled blocks reach it through the
 //! catch-up walk.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -66,10 +66,21 @@ async fn session(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, db: &mut C
             world.apply(text(&log, "address"), name, &args);
         }
     }
-    // Every borrower is due at once; the per-poll cap below spreads the first reads.
-    let sql = format!("SELECT spoke, user FROM core.user_account_latest FINAL WHERE chain_id = {id} AND debt_usd > 0 FORMAT TSV");
-    let borrowers: Vec<(u64, String)> = ch.query(&sql, String::new()).await?.lines().filter_map(|l| l.split_once('\t')).map(|(s, u)| (0, keys::due_member(s, u))).collect();
-    for batch in borrowers.chunks(5_000) {
+    // Every account with a position is read on a schedule, and with it each reserve it holds.
+    // All are due at once; the per-poll cap below spreads the first reads.
+    let sql = format!(
+        "SELECT spoke, user, reserve_id FROM core.user_reserve_latest FINAL \
+         WHERE chain_id = {id} AND (supplied_assets > 0 OR drawn_debt > 0 OR premium_debt > 0) FORMAT TSV"
+    );
+    let mut positions: HashMap<(String, String), BTreeSet<u32>> = HashMap::new();
+    for line in ch.query(&sql, String::new()).await?.lines() {
+        let mut cols = line.split('\t');
+        if let (Some(spoke), Some(user), Some(Ok(reserve))) = (cols.next(), cols.next(), cols.next().map(str::parse)) {
+            positions.entry((spoke.to_string(), user.to_string())).or_default().insert(reserve);
+        }
+    }
+    let accounts: Vec<(u64, String)> = positions.keys().map(|(spoke, user)| (0, keys::due_member(spoke, user))).collect();
+    for batch in accounts.chunks(5_000) {
         let _: () = redis::cmd("ZADD").arg(keys::due(id)).arg("NX").arg(batch).query_async(db).await?;
     }
 
@@ -79,7 +90,7 @@ async fn session(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, db: &mut C
     // Health factor reads by tier exist only here, so they are kept: held until their block is
     // settled, then written to raw.calls, where the processor finds them like any other call.
     let mut held: Vec<Value> = Vec::new();
-    eprintln!("{}: tip from block {}, {} borrowers scheduled, every {interval:?}", chain.name, start + 1, borrowers.len());
+    eprintln!("{}: tip from block {}, {} accounts scheduled, every {interval:?}", chain.name, start + 1, accounts.len());
 
     loop {
         sleep(interval).await;
@@ -106,8 +117,7 @@ async fn session(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, db: &mut C
             }
         }
 
-        let watch: BTreeSet<&String> = world.hubs.iter().chain(world.hub_spokes.iter().map(|(_, _, s)| s)).chain(world.oracles.values()).collect();
-        let watch: Vec<String> = watch.into_iter().cloned().collect();
+        let watch: Vec<String> = world.watch().into_iter().collect();
         let logs = rpc.logs_once(&watch, from, head.number).await?;
         let (times, _) = rpc.block_times(&logs).await?;
         let mut rows = Vec::with_capacity(logs.len());
@@ -119,8 +129,13 @@ async fn session(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, db: &mut C
             if let Some((_, name, args)) = decode(&codec, &row) {
                 let contract = text(&row, "address");
                 world.apply(contract, name, &args);
-                for call in world.touched(contract, name, &args).iter().flat_map(|e| e.calls(&codec)) {
-                    plan.insert(call, Reason::Event);
+                for entity in world.touched(contract, name, &args) {
+                    if let Entity::UserReserve(spoke, user, reserve) = &entity {
+                        positions.entry((spoke.clone(), user.clone())).or_default().insert(*reserve);
+                    }
+                    for call in entity.calls(&codec) {
+                        plan.insert(call, Reason::Event);
+                    }
                 }
             }
             rows.push(row);
@@ -129,13 +144,16 @@ async fn session(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, db: &mut C
             plan.entry(call).or_insert(Reason::Event);
         }
         if head.time / 3600 != last_time / 3600 {
-            for call in world.everything().iter().flat_map(|e| e.calls(&codec)) {
+            for call in world.everything().iter().flat_map(|e| e.calls(&codec)).chain(world.source_calls(&codec)) {
                 plan.entry(call).or_insert(Reason::Heartbeat);
             }
         }
         let due: Vec<String> = db.zrangebyscore_limit(keys::due(id), 0, head.number, 0, env_u64("TIP_MAX_USERS", 500) as isize).await?;
         for (spoke, user) in due.iter().filter_map(|member| member.split_once(':')) {
-            for call in Entity::User(spoke.to_string(), user.to_string()).calls(&codec) {
+            // The account, and each reserve it holds: amounts grow with interest between events.
+            let holds = positions.get(&(spoke.to_string(), user.to_string())).into_iter().flatten();
+            let reserves = holds.map(|reserve| Entity::UserReserve(spoke.to_string(), user.to_string(), *reserve));
+            for call in reserves.chain([Entity::User(spoke.to_string(), user.to_string())]).flat_map(|e| e.calls(&codec)) {
                 plan.entry(call).or_insert(Reason::Tier);
             }
         }
@@ -148,8 +166,11 @@ async fn session(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, db: &mut C
             let Some(("getUserAccountData", inputs, account)) = codec.result(text(call, "selector"), text(call, "args"), text(call, "result")) else { continue };
             let member = keys::due_member(text(call, "target"), text(&inputs, "user"));
             let health = account["healthFactor"].as_str().and_then(|h| h.parse::<f64>().ok()).unwrap_or(f64::MAX) / 1e18;
+            let known = positions.contains_key(&(text(call, "target").to_string(), text(&inputs, "user").to_string()));
             let _: () = match (text(&account, "totalDebtValueRay") == "0", health) {
-                (true, _) => db.zrem(keys::due(id), member).await?,
+                // No debt: a supplier is still read hourly; an account with nothing is dropped.
+                (true, _) if !known => db.zrem(keys::due(id), member).await?,
+                (true, _) => db.zadd(keys::due(id), member, head.number + blocks_in(3_600_000)).await?,
                 (_, h) if h < 1.1 => db.zadd(keys::due(id), member, head.number + 1).await?,
                 (_, h) if h < 1.5 => db.zadd(keys::due(id), member, head.number + blocks_in(300_000)).await?,
                 _ => db.zadd(keys::due(id), member, head.number + blocks_in(3_600_000)).await?,

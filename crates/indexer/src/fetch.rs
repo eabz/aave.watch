@@ -9,7 +9,10 @@ use std::env;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::Duration;
 
+use aave_watch_protocol::codec::Codec;
 use aave_watch_protocol::{abi, registry};
+
+use crate::model::World;
 use anyhow::{Context, Result, anyhow, bail};
 use futures::{StreamExt, stream};
 use serde_json::{Value, json};
@@ -38,6 +41,17 @@ pub async fn run() -> Result<()> {
             Err(_) => eprintln!("{}: {var} is not set, chain skipped", chain.name),
         }
     }
+    // Aave v3 totals: one task per chain that has a v3 market and an endpoint. See v3.rs.
+    let mut v3: std::collections::BTreeMap<u32, Vec<registry::V3Market>> = Default::default();
+    for market in registry::v3_markets() {
+        v3.entry(market.chain_id).or_default().push(market);
+    }
+    for (chain_id, markets) in v3 {
+        match env::var(format!("RPC_HTTP_{chain_id}")) {
+            Ok(url) => drop(tasks.spawn(crate::v3::run_chain(markets, Rpc::new(url), ch.clone()))),
+            Err(_) => eprintln!("{} v3: RPC_HTTP_{chain_id} is not set, chain skipped", markets[0].chain),
+        }
+    }
     // A chain task loops forever; if one ends, stop so systemd restarts the process.
     match tasks.join_next().await {
         Some(ended) => ended?,
@@ -46,15 +60,16 @@ pub async fn run() -> Result<()> {
 }
 
 async fn run_chain(chain: registry::Chain, rpc: Rpc, ch: ClickHouse) -> Result<()> {
-    let add_spoke = abi::topic0("hub", "AddSpoke").context("AddSpoke is not in topics.tsv")?;
+    let codec = Codec::new();
     let first = chain.start_block;
-    let mut watch = watch_list(&chain, &rpc, &ch, add_spoke).await?;
+    let mut world = World::new(&chain);
+    let mut watch = watch_list(&chain, &rpc, &ch, &codec, &mut world).await?;
     let size = AtomicU64::new(env_u64("FETCH_RANGE", 2_000).clamp(1, MAX_RANGE));
     // How often to look at the settle tag once caught up.
     let idle = Duration::from_millis((chain.block_time_ms * 8).clamp(5_000, 120_000));
     eprintln!("{}: watching {} addresses", chain.name, watch.len());
     loop {
-        match round(&chain, &rpc, &ch, &mut watch, &size, first, add_spoke).await {
+        match round(&chain, &rpc, &ch, &codec, &mut world, &mut watch, &size, first).await {
             Ok(true) => {}
             Ok(false) => sleep(idle).await,
             Err(e) => {
@@ -68,16 +83,26 @@ async fn run_chain(chain: registry::Chain, rpc: Rpc, ch: ClickHouse) -> Result<(
 /// Walks from the raw cursor to the settled block. `Ok(false)` when there was nothing to do.
 /// Everything it writes is keyed on the natural key, so a round that fails half way is simply
 /// run again.
+#[allow(clippy::too_many_arguments)]
 async fn round(
     chain: &registry::Chain,
     rpc: &Rpc,
     ch: &ClickHouse,
+    codec: &Codec,
+    world: &mut World,
     watch: &mut BTreeSet<String>,
     size: &AtomicU64,
     first: u64,
-    add_spoke: &str,
 ) -> Result<bool> {
     let id = chain.chain_id;
+    // A settled block must never change. If the last one we recorded did, this chain stops here
+    // until someone looks: see "Reorgs" in docs/data-pipeline.md.
+    if let Some((number, hash)) = ch.settled_hash(id).await? {
+        let now = header(&rpc.call("eth_getBlockByNumber", json!([format!("0x{number:x}"), false])).await?)?.hash;
+        if now != hash {
+            bail!("settled block {number} changed: stored {hash}, the node now says {now}. Not fetching further");
+        }
+    }
     let start = ch.cursor(id, "raw").await?.map_or(first, |c| c + 1);
     let settled = header(&rpc.call("eth_getBlockByNumber", json!([chain.settle_tag, false])).await?)?;
     if settled.number < start {
@@ -105,7 +130,7 @@ async fn round(
 
     let (mut stored, mut found) = (0usize, Vec::new());
     while let Some((_, to, logs)) = fetched.next().await {
-        found = new_spokes(&logs, add_spoke, watch);
+        found = new_addresses(codec, world, &logs, watch);
         if !found.is_empty() {
             break; // this range is not stored; it is fetched again with the new addresses
         }
@@ -121,20 +146,15 @@ async fn round(
     }
     drop(fetched);
 
-    for spoke in found {
-        let mut new = vec![spoke];
+    for address in found {
+        let mut new = vec![address];
         new.extend(rpc.oracle(&new[0]).await);
-        // A Spoke is deployed and configured before a Hub announces it. Fetch that history for
-        // it alone, back to the chain's start block, before the walk goes on. Rare, and one
+        // A contract is deployed and configured before anything announces it. Fetch that history
+        // for it alone, back to the chain's start block, before the walk goes on. Rare, and one
         // request per MAX_RANGE blocks.
         let upto = ch.cursor(id, "raw").await?.unwrap_or(0);
-        let (lookback, mut from, mut earlier) = (AtomicU64::new(MAX_RANGE), first, 0);
-        while from <= upto {
-            let to = (from + lookback.load(Relaxed) - 1).min(upto);
-            earlier += store(id, rpc, ch, &rpc.logs(&new, from, to, &lookback).await).await?;
-            from = to + 1;
-        }
-        eprintln!("{}: new Spoke {}, {earlier} earlier logs stored", chain.name, new[0]);
+        let earlier = history(id, rpc, ch, &new, first, upto).await?;
+        eprintln!("{}: new contract {}, {earlier} earlier logs stored", chain.name, new[0]);
         watch.extend(new);
     }
     if stored > 0 || settled.number - start >= 1_000 {
@@ -159,46 +179,63 @@ async fn store(chain_id: u32, rpc: &Rpc, ch: &ClickHouse, logs: &[Value]) -> Res
     Ok(rows.len())
 }
 
-/// Hubs, plus every Spoke a Hub has announced. `registry/spokes.toml` is a seed, not the list:
-/// its Spokes are watched from the first block so their history costs no extra request, and any
-/// Spoke missing from it is found from `AddSpoke` logs (in `raw.logs` at start, in the walk after).
-async fn watch_list(
-    chain: &registry::Chain,
-    rpc: &Rpc,
-    ch: &ClickHouse,
-    add_spoke: &str,
-) -> Result<BTreeSet<String>> {
-    let mut watch: BTreeSet<String> = chain.hubs.iter().map(|h| h.address.to_lowercase()).collect();
+/// Every log of `addresses` from `first` to `upto`, stored. Marks each address as done, so a
+/// contract with no logs at all is not walked again on the next start.
+async fn history(chain_id: u32, rpc: &Rpc, ch: &ClickHouse, addresses: &[String], first: u64, upto: u64) -> Result<usize> {
+    let (size, mut from, mut stored) = (AtomicU64::new(MAX_RANGE), first, 0);
+    while from <= upto {
+        let to = (from + size.load(Relaxed) - 1).min(upto);
+        stored += store(chain_id, rpc, ch, &rpc.logs(addresses, from, to, &size).await).await?;
+        from = to + 1;
+    }
+    let done: Vec<Value> = addresses
+        .iter()
+        .map(|a| json!({"chain_id": chain_id, "stream": format!("watch:{a}"), "block_number": upto, "block_hash": ""}))
+        .collect();
+    ch.insert("meta.cursor", &done).await?;
+    Ok(stored)
+}
+
+/// The contracts whose logs are fetched: what the stored events name (`World::watch`), plus the
+/// seed. `registry/spokes.toml` is a seed, not the list: its Spokes are watched from the first
+/// block so their history costs no extra request; anything else is found from events.
+async fn watch_list(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, codec: &Codec, world: &mut World) -> Result<BTreeSet<String>> {
+    let id = chain.chain_id;
+    let mut watch = BTreeSet::new();
     // FETCH_NO_SEED=1 ignores the seed, so every Spoke has to be discovered. For testing discovery.
     let seed = if env_u64("FETCH_NO_SEED", 0) == 1 { Vec::new() } else { registry::spokes() };
-    for s in seed.into_iter().filter(|s| s.chain_id == chain.chain_id) {
+    for s in seed.into_iter().filter(|s| s.chain_id == id) {
         watch.insert(s.address.to_lowercase());
         watch.extend(s.oracle.map(|o| o.to_lowercase()));
     }
-    // raw.logs remembers the Spokes added after the registry file was written.
-    let sql = format!(
-        "SELECT DISTINCT topic2 FROM raw.logs WHERE chain_id = {} AND topic0 = '{add_spoke}' FORMAT TSV",
-        chain.chain_id
-    );
-    for topic in ch.query(&sql, String::new()).await?.lines() {
-        let spoke = topic_address(topic);
-        if !watch.contains(&spoke) {
-            watch.extend(rpc.oracle(&spoke).await);
-            watch.insert(spoke);
+    for log in ch.logs(id, chain.start_block, u64::MAX, true).await? {
+        if let Some((_, name, args)) = crate::model::decode(codec, &log) {
+            world.apply(crate::model::text(&log, "address"), name, &args);
+        }
+    }
+    watch.extend(world.watch());
+    // Interest rate strategies and access managers were announced in logs stored before they
+    // were watched: their history is fetched once.
+    let upto = ch.cursor(id, "raw").await?.unwrap_or(0);
+    for address in world.others.clone().intersection(&watch) {
+        if upto > 0 && ch.cursor(id, &format!("watch:{address}")).await?.is_none() {
+            let earlier = history(id, rpc, ch, std::slice::from_ref(address), chain.start_block, upto).await?;
+            eprintln!("{}: now watching {address}, {earlier} earlier logs stored", chain.name);
         }
     }
     Ok(watch)
 }
 
-/// Spokes named by `AddSpoke(assetId, spoke)` logs that are not watched yet.
-fn new_spokes(logs: &[Value], add_spoke: &str, watch: &BTreeSet<String>) -> Vec<String> {
-    let found: BTreeSet<String> = logs
-        .iter()
-        .filter(|l| l["topics"][0].as_str().is_some_and(|t| t.eq_ignore_ascii_case(add_spoke)))
-        .filter_map(|l| l["topics"][2].as_str().map(topic_address))
-        .filter(|spoke| !watch.contains(spoke))
-        .collect();
-    found.into_iter().collect()
+/// Contracts named by the events in these logs (as the node returned them) that are not watched yet.
+fn new_addresses(codec: &Codec, world: &mut World, logs: &[Value], watch: &BTreeSet<String>) -> Vec<String> {
+    for log in logs {
+        let topics: Vec<&str> = log["topics"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        let (Some(address), Some(data)) = (log["address"].as_str(), log["data"].as_str()) else { continue };
+        if let Some((_, name, args)) = codec.log(&topics, data) {
+            world.apply(&address.to_lowercase(), name, &args);
+        }
+    }
+    world.watch().difference(watch).cloned().collect()
 }
 
 /// The address in a 32-byte topic or call result.
@@ -467,6 +504,16 @@ impl ClickHouse {
         Ok((count != "0").then(|| max.parse()).transpose()?)
     }
 
+    /// The newest settled block whose hash the cursor recorded.
+    async fn settled_hash(&self, chain_id: u32) -> Result<Option<(u64, String)>> {
+        let sql = format!(
+            "SELECT block_number, block_hash FROM meta.cursor WHERE chain_id = {chain_id} AND stream = 'raw' AND block_hash != '' \
+             ORDER BY block_number DESC LIMIT 1 FORMAT TSV"
+        );
+        let text = self.query(&sql, String::new()).await?;
+        Ok(text.trim().split_once('\t').and_then(|(number, hash)| Some((number.parse().ok()?, hash.to_string()))))
+    }
+
     /// Stored logs of `[from, to]` in chain order, each once. `registry_only` keeps just the
     /// events `World` is rebuilt from.
     pub(crate) async fn logs(&self, chain_id: u32, from: u64, to: u64, registry_only: bool) -> Result<Vec<Value>> {
@@ -532,13 +579,18 @@ mod tests {
     }
 
     #[test]
-    fn add_spoke_logs_name_spokes_not_yet_watched() {
+    fn events_name_contracts_not_yet_watched() {
+        let codec = Codec::new();
+        let chain = registry::chains().into_iter().find(|c| c.chain_id == 1).unwrap();
+        let mut world = World::new(&chain);
         let add_spoke = abi::topic0("hub", "AddSpoke").unwrap();
         let known = "0x000000000000000000000000092508a2Eb395cb3861a3fdB65405744d706476f";
         let new = "0x0000000000000000000000001111111111111111111111111111111111111111";
         let logs = [log(add_spoke, known), log(add_spoke, new), log(add_spoke, new), log("0xother", new)];
-        let watch: BTreeSet<String> = ["0x092508a2eb395cb3861a3fdb65405744d706476f".to_string()].into();
-        assert_eq!(new_spokes(&logs, add_spoke, &watch), ["0x1111111111111111111111111111111111111111"]);
-        assert!(new_spokes(&logs[..1], add_spoke, &watch).is_empty());
+        let mut watch = world.watch();
+        watch.insert("0x092508a2eb395cb3861a3fdb65405744d706476f".to_string());
+        assert_eq!(new_addresses(&codec, &mut world, &logs, &watch), ["0x1111111111111111111111111111111111111111"]);
+        watch.insert("0x1111111111111111111111111111111111111111".to_string());
+        assert!(new_addresses(&codec, &mut world, &logs, &watch).is_empty());
     }
 }

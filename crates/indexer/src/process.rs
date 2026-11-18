@@ -16,7 +16,7 @@ use crate::fetch::ClickHouse;
 use crate::model::{World, decode, int, text};
 
 /// Bump when parsing or enrichment changes what a row says; old rows are then reparsed.
-const PARSER_VERSION: u16 = 1;
+const PARSER_VERSION: u16 = 2;
 /// `Value` in the Spoke's account data is USD in the oracle's decimals, scaled by WAD.
 const WAD_DECIMALS: i32 = 18;
 const RAY_DECIMALS: i32 = 27;
@@ -44,7 +44,9 @@ async fn run_chain(chain: registry::Chain, ch: ClickHouse) -> Result<()> {
             world.apply(text(&log, "address"), name, &args);
         }
     }
-    let mut state = State::load(&ch, id).await?;
+    // A chain processed from its first block (a first run, or a reparse) starts with no prices:
+    // the latest ones belong to the future of the blocks it is about to read.
+    let mut state = if cursor < chain.start_block { State::default() } else { State::load(&ch, id).await? };
     let idle = Duration::from_millis((chain.block_time_ms * 8).clamp(5_000, 120_000));
     // About ten hours of blocks per round.
     let chunk = 36_000_000 / chain.block_time_ms;
@@ -99,6 +101,8 @@ pub struct State {
     asset_prices: HashMap<(String, u32), f64>,
     /// oracle -> decimals of its prices
     oracle_decimals: HashMap<String, i32>,
+    /// (spoke, reserve id) -> when its price source last updated, as last written
+    updated: HashMap<(String, u32), u64>,
 }
 
 impl State {
@@ -205,13 +209,14 @@ pub fn process_block(
             "symbol" => {
                 let decimals = world.assets.values().find(|(token, _)| token == target).map_or(0, |(_, d)| *d);
                 let name = view(&views, "name", target, "").and_then(Value::as_str).unwrap_or("");
-                out.push("meta.tokens", json!({"chain_id": chain_id, "address": target, "symbol": output, "name": name, "decimals": decimals, "canonical": "", "logo": ""}));
+                out.push("meta.tokens", json!({"chain_id": chain_id, "address": target, "symbol": output, "name": name, "decimals": decimals, "canonical": output.as_str().unwrap_or("").to_lowercase(), "logo": ""}));
             }
             _ => {}
         }
     }
 
-    // Prices. A row only when the price changed; then one price per Hub asset, the median.
+    // Prices. A row only when the price or its source's update time changed; then one price per
+    // Hub asset, the median.
     let mut repriced: BTreeSet<(String, u32)> = BTreeSet::new();
     for (spoke, oracle) in &world.oracles {
         let ids = world.reserve_ids(spoke);
@@ -221,15 +226,23 @@ pub fn process_block(
         let decimals = state.oracle_decimals.get(oracle).copied().unwrap_or(8);
         for (id, price_raw) in ids.iter().zip(prices) {
             let at = (spoke.clone(), *id);
-            if state.prices.get(&at).is_some_and(|(old, _)| old == raw(price_raw)) {
+            // Where the source is a Chainlink feed it also says when it last updated (read hourly).
+            let source = world.sources.get(&at).map_or("", String::as_str);
+            let updated = view(&views, "latestRoundData", source, "").and_then(|round| round[3].as_str()?.parse::<u64>().ok());
+            let same_price = state.prices.get(&at).is_some_and(|(old, _)| old == raw(price_raw));
+            if same_price && (updated.is_none() || state.updated.get(&at) == updated.as_ref()) {
                 continue;
             }
+            state.updated.extend(updated.map(|u| (at.clone(), u)));
             let price = scaled(price_raw, decimals);
-            let mut row = json!({"spoke": spoke, "reserve_id": id, "price_raw": raw(price_raw), "price": price, "source": ""});
+            let mut row = json!({"spoke": spoke, "reserve_id": id, "price_raw": raw(price_raw), "price": price,
+                                 "source": source, "source_updated_at": state.updated.get(&at)});
             stamp(&mut row);
             out.push("core.prices", row);
-            state.prices.insert(at.clone(), (raw(price_raw).to_string(), price));
-            repriced.extend(world.reserves.get(&at).cloned());
+            if !same_price {
+                state.prices.insert(at.clone(), (raw(price_raw).to_string(), price));
+                repriced.extend(world.reserves.get(&at).cloned());
+            }
         }
     }
     for asset in repriced {
@@ -370,10 +383,6 @@ pub fn process_block(
 
     for (log, abi_kind, name, args) in &events {
         let contract = text(log, "address");
-        // Vault share moves stay in raw.logs only (docs/data-pipeline.md).
-        if matches!(*name, "Transfer" | "Approval") {
-            continue;
-        }
         let kind = match () {
             _ if world.hubs.contains(contract) => "hub",
             _ if world.oracles.contains_key(contract) => "spoke",
@@ -397,7 +406,9 @@ pub fn process_block(
         if *name == "Restore" {
             amount += text(args, "premiumAmount").parse::<u128>().unwrap_or(0);
         }
-        let shares = first(&["shares", "drawnShares", "suppliedShares", "withdrawnShares", "drawnSharesLiquidated"]);
+        // A vault share Transfer moves `value` shares; an Approval's `value` is an allowance, not a move.
+        let transfer: &[&str] = if *name == "Transfer" { &["value"] } else { &[] };
+        let shares = first(&[&["shares", "drawnShares", "suppliedShares", "withdrawnShares", "drawnSharesLiquidated"], transfer].concat());
         let (token, decimals) = asset.and_then(|a| world.assets.get(&(hub.clone(), a))).cloned().unwrap_or_default();
         let price = match reserve {
             Some(r) => state.prices.get(&(contract.to_string(), r)).map(|(_, p)| *p),
@@ -407,7 +418,7 @@ pub fn process_block(
         let mut row = json!({
             "log_index": log["log_index"], "tx_hash": log["tx_hash"], "contract": contract, "kind": kind, "name": name,
             "hub": hub, "spoke": spoke, "asset_id": asset, "reserve_id": reserve,
-            "user": first(&["user", "owner"]), "caller": first(&["caller", "liquidator", "sender"]),
+            "user": first(&["user", "owner", "from"]), "caller": first(&["caller", "liquidator", "sender"]),
             "amount": amount.to_string(), "shares": if shares.is_empty() { "0" } else { shares },
             "token": token, "price": price, "amount_usd": amount as f64 / 10f64.powi(decimals as i32) * price,
             "args": args.to_string(),
@@ -514,6 +525,13 @@ mod tests {
         let mut again = Rows::default();
         process_block(&codec, &mut world, &mut state, 1, 101, &[], &calls[1..2], &mut again);
         assert!(!again.0.contains_key("core.prices"));
+        // unless its source reports a new update time: that is a row, with the source named
+        let feed = log(0, SPOKE, "spoke", "UpdateReservePriceSource", [id(0), topic(TOKEN), none()], "0x".into());
+        let round = call(&codec, TOKEN, "latestRoundData", &[], [word(7, 0), word(100_020_000, 0), word(0, 0), word(1_799_999_000, 0), word(7, 0)].concat());
+        process_block(&codec, &mut world, &mut state, 1, 101, &[&feed], &[calls[1], &round], &mut again);
+        assert_eq!(again.0["core.prices"][0]["source"], TOKEN);
+        assert_eq!(again.0["core.prices"][0]["source_updated_at"], 1_799_999_000u64);
+        assert!(!again.0.contains_key("core.asset_prices")); // the price itself did not move
 
         // no debt: the health factor is infinite, not the largest uint256 divided by 1e18
         let max = format!("{:064x}", U256::MAX);

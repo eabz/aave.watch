@@ -35,7 +35,7 @@ crates/
   protocol/     deployed ABIs (abi/*.json), Dragonfly key names, shared row and message types
   indexer/      binary, two processes: `fetch` (node -> raw) and `process` (raw -> core, tip)
   api/          binary: HTTP + SSE over ClickHouse and Dragonfly
-registry/       chains and Hubs (chains.toml), Spokes with kind and name (spokes.toml)
+registry/       chains and Hubs (chains.toml), Spokes with kind and name (spokes.toml), Aave v3 markets (v3.toml)
 infra/
   clickhouse/   numbered .sql migrations and migrate.sh
   dragonfly/    dragonfly.conf
@@ -158,7 +158,8 @@ The API runs as the systemd unit `aave-watch-api` (binary `/usr/local/bin/aave-w
 
 The fetcher runs as the systemd unit `aave-watch-fetch` (binary `/usr/local/bin/aave-watch-indexer fetch`,
 unit file in `infra/systemd/`, `DynamicUser`). Its RPC URLs, which carry the provider key, are in
-`/etc/aave-watch/fetch.env` (root only; template in `infra/systemd/fetch.env.example`). The
+`/etc/aave-watch/fetch.env` (root only; template in `infra/systemd/fetch.env.example`): the four
+v4 chains and 17 more for the Aave v3 totals, the same provider on each except Metis (a public node). The
 processor is the same binary as the unit `aave-watch-process` (`aave-watch-indexer process`); it has
 no RPC URL.
 

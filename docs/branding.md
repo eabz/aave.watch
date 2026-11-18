@@ -120,8 +120,10 @@ and here together.
 Series, in order: `#978eff`, `#5d7eaa`, `#d0ceff` (dark) or `#4c1f5e` (light), `#c18fff`, `#94799e`,
 `#8f8e8e`. More than six: group the tail as "Other". The three Hubs keep the first three across the
 app: Core, Plus, Prime. Label series on the chart; a legend names and numbers every segment. Cap
-usage bars are `accent` and switch to `danger` above 90%. Not yet tested on a real multi-series
-chart.
+usage bars are `accent` and switch to `danger` above 90%. A time chart may fill its panel
+(`chart--wide`); the pointer or the arrow keys move a dashed reading line, and the key under the
+chart names the time and every series value at it. The first series may carry an `accent-soft`
+area. Not yet tested on a chart of more than two series.
 
 ## Typography
 

@@ -30,6 +30,26 @@ pub struct Spoke {
     pub oracle: Option<String>,
 }
 
+/// An Aave v3 market (registry/v3.toml), read for totals only.
+#[derive(Deserialize, Clone, Debug)]
+pub struct V3Market {
+    pub chain_id: u32,
+    pub chain: String,
+    pub market: String,
+    /// PoolAddressesProvider: names the market's oracle and data provider at any block.
+    pub provider: String,
+    pub pool: String,
+}
+
+#[derive(Deserialize)]
+struct V3 {
+    market: Vec<V3Market>,
+}
+
+pub fn v3_markets() -> Vec<V3Market> {
+    toml::from_str::<V3>(include_str!("../../../registry/v3.toml")).expect("registry/v3.toml").market
+}
+
 #[derive(Deserialize)]
 struct Chains {
     chain: Vec<Chain>,
@@ -67,5 +87,8 @@ mod tests {
         assert!(spokes.iter().any(|s| s.oracle.is_some()));
         // every Spoke belongs to a chain we know
         assert!(spokes.iter().all(|s| chains.iter().any(|c| c.chain_id == s.chain_id)));
+        let v3 = v3_markets();
+        assert_eq!(v3.iter().filter(|m| m.chain_id == 1).count(), 4);
+        assert!(v3.iter().all(|m| m.provider.len() == 42 && m.pool.len() == 42 && !m.chain.is_empty()));
     }
 }

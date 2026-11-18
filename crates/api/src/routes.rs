@@ -29,7 +29,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/positions", get(positions))
         .route("/v1/account", get(account))
         .route("/v1/events", get(events))
+        .route("/v1/liquidations", get(liquidations))
         .route("/v1/history/hub-asset", get(history_hub_asset))
+        .route("/v1/history/totals", get(history_totals))
+        .route("/v1/history/v3-totals", get(history_v3_totals))
         .route("/v1/stream", get(sse))
         .fallback(|| async { fail(StatusCode::NOT_FOUND, "No such endpoint. See docs/api.md.") })
         .with_state(app)
@@ -141,10 +144,13 @@ async fn hub_assets(State(app): S, Query(q): Q) -> Response {
     let (chain, hub) = (p!(Params(&q).chain()), p!(Params(&q).address("hub")));
     let sql = format!("SELECT s.* {HIDE}, dictGetOrDefault('meta.hubs_dict', 'name', (s.chain_id, toString(s.hub)), '') AS hub_name, \
                a.token AS token, a.decimals AS decimals, \
-               dictGetOrDefault('meta.tokens_dict', 'symbol', (s.chain_id, a.token), '') AS symbol \
+               dictGetOrDefault('meta.tokens_dict', 'symbol', (s.chain_id, a.token), '') AS symbol, \
+               y.supply_apy_1d AS supply_apy_1d, y.supply_apy_7d AS supply_apy_7d \
         FROM (SELECT * FROM core.hub_asset_latest FINAL WHERE {BY_CHAIN} AND ({{hub:String}} = '' OR hub = {{hub:String}})) AS s \
         LEFT JOIN (SELECT chain_id, hub, asset_id, token, decimals FROM meta.assets FINAL) AS a \
           ON a.chain_id = s.chain_id AND a.hub = s.hub AND a.asset_id = s.asset_id \
+        LEFT JOIN (SELECT chain_id, hub, asset_id, supply_apy_1d, supply_apy_7d FROM core.hub_asset_apy) AS y \
+          ON y.chain_id = s.chain_id AND y.hub = s.hub AND y.asset_id = s.asset_id \
         ORDER BY s.chain_id, s.hub, s.asset_id");
     list(&app, &sql, &[("chain", chain), ("hub", hub)], 15).await
 }
@@ -259,6 +265,21 @@ async fn events(State(app): S, Query(q): Q) -> Response {
     }
 }
 
+async fn liquidations(State(app): S, Query(q): Q) -> Response {
+    let pr = Params(&q);
+    let (chain, spoke, user, liquidator) = (p!(pr.chain()), p!(pr.address("spoke")), p!(pr.address("user")), p!(pr.address("liquidator")));
+    let (before, limit) = (p!(pr.uint("before", 0, u64::MAX)), p!(pr.uint("limit", 100, 1000)));
+    let sql = format!("SELECT *, dictGetOrDefault('meta.tokens_dict', 'symbol', (chain_id, debt_token), '') AS debt_symbol, \
+               dictGetOrDefault('meta.tokens_dict', 'symbol', (chain_id, collateral_token), '') AS collateral_symbol, \
+               dictGetOrDefault('meta.spokes_dict', 'name', (chain_id, spoke), '') AS spoke_name \
+        FROM core.liquidations WHERE {BY_CHAIN} \
+          AND ({{spoke:String}} = '' OR spoke = {{spoke:String}}) AND ({{user:String}} = '' OR user = {{user:String}}) \
+          AND ({{liquidator:String}} = '' OR liquidator = {{liquidator:String}}) \
+          AND ({{before:UInt64}} = 0 OR block_number < {{before:UInt64}}) \
+        ORDER BY block_time DESC, block_number DESC, log_index DESC LIMIT {{limit:UInt32}}");
+    list(&app, &sql, &[("chain", chain), ("spoke", spoke), ("user", user), ("liquidator", liquidator), ("before", before), ("limit", limit)], 15).await
+}
+
 async fn history_hub_asset(State(app): S, Query(q): Q) -> Response {
     let pr = Params(&q);
     let chain = p!(pr.chain().and_then(|c| pr.required("chain", c)));
@@ -269,6 +290,48 @@ async fn history_hub_asset(State(app): S, Query(q): Q) -> Response {
     list(&app, "SELECT * EXCEPT (refreshed_at) FROM core.hub_asset_hourly FINAL \
         WHERE chain_id = {chain:UInt32} AND hub = {hub:String} AND asset_id = {asset:UInt32} AND hour >= now() - toIntervalHour({hours:UInt32}) \
         ORDER BY hour", &[("chain", chain), ("hub", hub), ("asset", asset), ("hours", hours)], 300).await
+}
+
+/// Hourly totals per chain from per-asset hourly rows. An asset with no reading in an hour keeps
+/// its last one (WITH FILL), so a quiet asset does not dip the total. `rows` selects
+/// `chain_id, <key columns>, hour, supplied_usd, borrowed_usd, liquidity_usd, block_number`.
+async fn totals(app: &App, q: &HashMap<String, String>, rows: &str, key: &str, extra: &str) -> Response {
+    let pr = Params(q);
+    let chain = p!(pr.chain());
+    let hours = p!(pr.uint("hours", 720, 24 * 366 * 5));
+    let step = match q.get("step").map(String::as_str) {
+        None | Some("hour") => "hour",
+        Some("day") => "day",
+        Some(_) => return fail(StatusCode::BAD_REQUEST, "step must be hour or day."),
+    };
+    let sql = format!("SELECT chain_id, {extra} hour, sum(supplied_usd) AS supplied_usd, sum(borrowed_usd) AS borrowed_usd, sum(liquidity_usd) AS liquidity_usd, \
+               max(block_number) AS block_number, hour AS block_time FROM ( \
+          {rows} ORDER BY chain_id, {key}, hour WITH FILL TO toStartOfHour(now()) + toIntervalHour(1) STEP toIntervalHour(1) \
+          INTERPOLATE (supplied_usd AS supplied_usd, borrowed_usd AS borrowed_usd, liquidity_usd AS liquidity_usd, block_number AS block_number)) \
+        WHERE hour >= now() - toIntervalHour({{hours:UInt32}}) AND ({{step:String}} = 'hour' OR toHour(hour) = 0 OR hour = toStartOfHour(now())) \
+        GROUP BY chain_id, hour ORDER BY chain_id, hour");
+    list(app, &sql, &[("chain", chain), ("hours", hours), ("step", step.into())], 300).await
+}
+
+async fn history_totals(State(app): S, Query(q): Q) -> Response {
+    let rows = format!("SELECT chain_id, hub, asset_id, hour, added_usd AS supplied_usd, owed_usd AS borrowed_usd, liquidity_usd, block_number \
+        FROM core.hub_asset_hourly FINAL WHERE {BY_CHAIN}");
+    totals(&app, &q, &rows, "hub, asset_id", "").await
+}
+
+/// The same totals for Aave v3, every market of a chain added up, with the chain's name (v3 runs
+/// on chains `meta.chains` does not list).
+async fn history_v3_totals(State(app): S, Query(q): Q) -> Response {
+    let mut names: Vec<(u32, String)> = aave_watch_protocol::registry::v3_markets().into_iter().map(|m| (m.chain_id, m.chain)).collect();
+    names.dedup();
+    let (ids, names): (Vec<String>, Vec<String>) = names.into_iter().map(|(id, name)| (id.to_string(), format!("'{name}'"))).unzip();
+    // every reserve of a market is read at the same block, so a market is summed before the fill
+    let rows = format!("SELECT chain_id, market, toStartOfHour(t) AS hour, argMax(s, n) AS supplied_usd, argMax(b, n) AS borrowed_usd, \
+               argMax(s - b, n) AS liquidity_usd, max(n) AS block_number FROM ( \
+          SELECT chain_id, market, block_number AS n, any(block_time) AS t, sum(supplied_usd) AS s, sum(borrowed_usd) AS b \
+          FROM core.v3_reserve_state WHERE {BY_CHAIN} GROUP BY chain_id, market, n) GROUP BY chain_id, market, hour");
+    let extra = format!("transform(chain_id, [{}], [{}], '') AS chain,", ids.join(","), names.join(","));
+    totals(&app, &q, &rows, "market", &extra).await
 }
 
 // ---- health and stream ----------------------------------------------------------------------

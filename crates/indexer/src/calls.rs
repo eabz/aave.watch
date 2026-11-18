@@ -88,7 +88,7 @@ fn plan(
     let mut plans: BTreeMap<u64, Plan> = BTreeMap::new();
     let heartbeat = |world: &World, plan: &mut Plan| {
         let all = world.everything().into_iter().flat_map(|e| e.calls(codec));
-        for call in all.chain(world.price_calls(codec)) {
+        for call in all.chain(world.price_calls(codec)).chain(world.source_calls(codec)) {
             plan.entry(call).or_insert(Reason::Heartbeat);
         }
     };
@@ -194,7 +194,7 @@ pub(crate) async fn read_block(chain_id: u32, rpc: &Rpc, codec: &Codec, block: u
 impl Rpc {
     /// Every call at `block` in one `eth_call`: the block's time, then (ok, result) per call.
     /// Multicall2 is not deployed on every chain, so its code is supplied as a state override.
-    async fn multicall(&self, codec: &Codec, block: u64, calls: &[(String, String)]) -> Result<(u64, Vec<(bool, String)>)> {
+    pub(crate) async fn multicall(&self, codec: &Codec, block: u64, calls: &[(String, String)]) -> Result<(u64, Vec<(bool, String)>)> {
         use aave_watch_protocol::codec::{MULTICALL, MULTICALL_CODE};
         let params = json!([
             {"to": MULTICALL, "data": codec.multicall(calls)},

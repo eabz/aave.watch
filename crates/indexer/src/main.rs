@@ -4,6 +4,7 @@ mod live;
 mod model;
 mod process;
 mod tip;
+mod v3;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

@@ -28,13 +28,16 @@ is specified in [data-pipeline.md](data-pipeline.md).
 | `/v1/hubs` | `chain?` | Hub: `chain_id, address, name, first_block` | `meta.hubs` | 300 |
 | `/v1/spokes` | `chain?`, `kind?` | Spoke: `chain_id, address, name, kind, oracle, first_block` | `meta.spokes` | 300 |
 | `/v1/summary` | `chain?` | chain: `chain_id, supplied_usd, borrowed_usd, liquidity_usd, positions_below_1_1, debt_below_1_1, liquidatable, block_number, block_time` | `core.*_latest` | 15 |
-| `/v1/hub-assets` | `chain?`, `hub?` | Hub asset: the `core.hub_asset_latest` row plus `hub_name, token, symbol, decimals` | `core.hub_asset_latest` | 15 |
+| `/v1/hub-assets` | `chain?`, `hub?` | Hub asset: the `core.hub_asset_latest` row plus `hub_name, token, symbol, decimals` and `supply_apy_1d, supply_apy_7d` (measured from the share price, a fraction; `null` when there is no reading that old) | `core.hub_asset_latest`, `core.hub_asset_apy` | 15 |
 | `/v1/hub-spokes` | `chain?`, `hub?`, `asset_id?`, `spoke?` | Spoke line on a Hub asset: the `core.hub_spoke_latest` row plus `spoke_name, spoke_kind, symbol, decimals` | `core.hub_spoke_latest` | 15 |
 | `/v1/reserves` | `chain?`, `spoke?` | reserve: the `core.reserve_latest` row plus `symbol, decimals` | `core.reserve_latest` | 15 |
 | `/v1/positions` | `chain?`, `spoke?`, `max_hf?` (default 1.5), `limit?` (default 100, max 1000) | account: the `core.user_account_latest` row plus `spoke_name` (from the tip: `chain_id, spoke, spoke_name, user, health_factor, collateral_usd, debt_usd, risk_premium, block_number, block_time` only), sorted by health factor ascending. Accounts with no debt are left out | Dragonfly tip, else `core.user_account_latest` | 5 |
 | `/v1/account` | `chain`, `user` | one per Spoke: the account row and `reserves: [core.user_reserve_latest rows]` | `core.*_latest` | 15 |
 | `/v1/events` | `chain?`, `spoke?`, `hub?`, `user?`, `name?`, `before?` (`block_number`), `limit?` (default 100, max 1000) | event: the `core.events` row plus `symbol, spoke_name`, newest first. `args` is a JSON object | `core.events` | 15 |
+| `/v1/liquidations` | `chain?`, `spoke?`, `user?`, `liquidator?`, `before?` (`block_number`), `limit?` (default 100, max 1000) | liquidation: the `core.liquidations` row (`debt_usd, collateral_usd, bonus_usd, fee_usd`, both reserves and tokens, `tx_hash`) plus `debt_symbol, collateral_symbol, spoke_name`, newest first | `core.liquidations` | 15 |
 | `/v1/history/hub-asset` | `chain`, `hub`, `asset_id`, `hours?` (default 720) | hour: the `core.hub_asset_hourly` row, oldest first | `core.hub_asset_hourly` | 300 |
+| `/v1/history/totals` | `chain?`, `step?` (`hour`, default, or `day`), `hours?` (default 720) | chain and hour: `chain_id, hour, supplied_usd, borrowed_usd, liquidity_usd, block_number, block_time`, oldest first. An asset with no reading in an hour keeps its last one. `step=day` keeps the 00:00 UTC reading of each day and the newest hour. `block_time` is the hour, not the block's own time | `core.hub_asset_hourly` | 300 |
+| `/v1/history/v3-totals` | same as `/v1/history/totals` | Aave v3, every market of a chain added up: the same fields plus `chain` (the chain's name; v3 runs on chains `/v1/chains` does not list). `liquidity_usd` is supplied minus borrowed | `core.v3_reserve_state` | 300 |
 
 `/v1/positions` answers with `"source": "tip"` or `"source": "settled"` next to `data`, so the UI
 can say how fresh the list is.

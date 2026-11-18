@@ -13,9 +13,11 @@ use serde_json::{Map, Value};
 
 use crate::abi;
 
-/// Multicall2, called through a state override (it is not deployed on every chain), and the three
-/// ERC-20 metadata views.
+/// Multicall2, called through a state override (it is not deployed on every chain), the ERC-20
+/// metadata views, and the two events an ERC-1967 proxy emits itself.
 const EXTRA: &str = r#"[
+{"type":"event","name":"Upgraded","anonymous":false,"inputs":[{"name":"implementation","type":"address","indexed":true}]},
+{"type":"event","name":"AdminChanged","anonymous":false,"inputs":[{"name":"previousAdmin","type":"address","indexed":false},{"name":"newAdmin","type":"address","indexed":false}]},
 {"type":"function","name":"tryAggregate","stateMutability":"view","inputs":[{"name":"requireSuccess","type":"bool"},{"name":"calls","type":"tuple[]","components":[{"name":"target","type":"address"},{"name":"callData","type":"bytes"}]}],"outputs":[{"name":"returnData","type":"tuple[]","components":[{"name":"success","type":"bool"},{"name":"returnData","type":"bytes"}]}]},
 {"type":"function","name":"getCurrentBlockTimestamp","stateMutability":"view","inputs":[],"outputs":[{"name":"timestamp","type":"uint256"}]},
 {"type":"function","name":"symbol","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"string"}]},
@@ -50,7 +52,9 @@ impl Codec {
             ("treasury", abi::TREASURY_SPOKE),
             ("oracle", abi::AAVE_ORACLE),
             ("ir_strategy", abi::INTEREST_RATE_STRATEGY),
-            ("extra", EXTRA),
+            ("access_manager", abi::ACCESS_MANAGER),
+            ("price_source", abi::CHAINLINK_AGGREGATOR_PROXY),
+            ("proxy", EXTRA),
         ] {
             let parsed: JsonAbi = serde_json::from_str(json).expect("abi json");
             for event in parsed.events() {
@@ -136,6 +140,11 @@ impl Codec {
         let results = items.map(|i| i.map(|(ok, bytes)| (ok, format!("0x{}", hex::encode(bytes))))).collect::<Option<_>>()?;
         Some((time, results))
     }
+}
+
+/// The 4-byte selector (0x hex) of a function signature like `decimals()`.
+pub fn selector(signature: &str) -> String {
+    format!("0x{}", hex::encode(&alloy_primitives::keccak256(signature)[..4]))
 }
 
 pub fn address(hex: &str) -> DynSolValue {
@@ -237,5 +246,16 @@ mod tests {
         assert_eq!(time, 1_800_000_000);
         assert_eq!(results, [(false, "0x".to_string())]);
         assert!(codec.multicall_result("0x").is_none());
+    }
+}
+
+#[cfg(test)]
+mod selector_tests {
+    #[test]
+    fn selectors_match_the_known_ones() {
+        assert_eq!(super::selector("decimals()"), "0x313ce567");
+        for s in ["getPriceOracle()", "getPoolDataProvider()", "getReservesList()", "getATokenTotalSupply(address)", "getTotalDebt(address)", "getAssetPrice(address)", "BASE_CURRENCY_UNIT()"] {
+            println!("{s} {}", super::selector(s));
+        }
     }
 }

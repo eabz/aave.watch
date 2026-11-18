@@ -1,0 +1,9 @@
+<!-- Source of public/og.png (1200x630, dark theme tokens of docs/branding.md). Render with Inter 400/500/600 loaded, e.g. @resvg/resvg-js. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" font-family="Inter">
+  <rect width="1200" height="630" fill="#110f0f"/>
+  <text x="96" y="300" font-size="132" font-weight="600" letter-spacing="-2.64" fill="#f5f3f3">aave<tspan fill="#978eff">.</tspan>watch</text>
+  <text x="100" y="396" font-size="44" font-weight="500" fill="#f5f3f3">Risk desk for Aave v4</text>
+  <text x="100" y="452" font-size="30" font-weight="400" fill="#b8b5b5">Positions, caps, liquidity and events across Hubs and Spokes.</text>
+  <rect x="100" y="520" width="1000" height="1" fill="#2f2b2b"/>
+  <text x="100" y="566" font-size="22" font-weight="400" fill="#b8b5b5">Independent. Not affiliated with Aave Labs or the Aave DAO.</text>
+</svg>

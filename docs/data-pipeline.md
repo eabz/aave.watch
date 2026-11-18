@@ -105,9 +105,9 @@ The processor runs stages 3 to 5 over raw rows and does not care where they came
 Backfill happens once per chain. After that, a change to parsing is a `reparse` of the affected
 range: drop the `core` partitions, replay raw through stages 3 to 5. No node is involved.
 
-Not everything in `raw` is parsed. `Transfer` and `Approval` logs of the tokenization Spokes stay in
-`raw.logs` only (decided 2026-11-18): they are vault share moves, not lending activity. Their
-`Deposit` and `Withdraw` logs are parsed.
+Every log an ABI knows is parsed, including the `Transfer` and `Approval` logs of the tokenization
+Spokes (vault share moves; since parser version 2, which reversed the earlier decision to keep them
+in `raw.logs` only) and the `Upgraded` and `AdminChanged` logs of the proxies.
 
 What reparse cannot give: a view we never called. Events are complete forever (every log of every
 watched contract is in `raw.logs`), but state exists only for the blocks where we called it. A new
@@ -138,9 +138,14 @@ names and kinds, but the fetcher does not depend on it.
 - Checked 2026-11-18 on Arc: a run with the seed ignored (`FETCH_NO_SEED=1`) found all 8 Spokes
   and stored the same 56,683 logs, by checksum, as the seeded run.
 
-Not discovered yet: a later Spoke's logs from before its chain's `start_block`, interest rate
-strategies, access managers and price feeds. Their logs can be fetched later for those addresses
-alone.
+Interest rate strategies and access managers are discovered the same way: a Hub names its
+strategies in `UpdateAssetConfig`, every Hub and Spoke names its access manager in
+`AuthorityUpdated`. Their history is fetched once, and that is recorded in `meta.cursor`
+(`stream = 'watch:{address}'`) so a contract with no logs is not walked again.
+
+Price sources are not watched for logs: a Chainlink proxy emits none itself, and more than half of
+the sources are adapters that are not Chainlink feeds. Their update time is a view call instead
+(see "Prices"). Not discovered yet: a later Spoke's logs from before its chain's `start_block`.
 
 ### From backfill to live
 
@@ -197,6 +202,7 @@ the stream's retention it goes back to ClickHouse the same way.
 | Calls, settled | `calls.rs` | walks from the `calls` cursor to the `raw` cursor over the stored logs, plans the views of each block (`model.rs`) and stores one multicall per block in `raw.calls` |
 | Tip | `tip.rs` | `live`: follows the head and appends unsettled batches to `raw:{chain_id}`; owns the health factor tiers (`due:{chain_id}`) |
 | Processor, settled | `process.rs` | `raw.*` to `core.*` and `meta.assets`, `meta.reserves`, `meta.tokens`, from the `core` cursor to the `calls` cursor |
+| Aave v3 totals | `v3.rs` | hourly supplied and borrowed of every v3 market on 21 chains, into `raw.v3_calls`; see [Aave v3 totals](#aave-v3-totals) |
 | Processor, tip | `live.rs` | `raw:{chain_id}` to the latest-state keys, the rankings and the `feed`, `state`, `risk`, `chain` streams |
 
 Where the code is simpler than the design above, on purpose:
@@ -214,13 +220,21 @@ Where the code is simpler than the design above, on purpose:
   their block is settled, then writes them to `raw.calls` (`reason = tier`); the calls walk never
   passes a block whose reads are still held. So `user_account_latest` is at most one tier interval
   old once a chain is live, and a fetcher restart loses only the reads it was holding.
+  Every account with a position is on the schedule, not only borrowers (a supplier with no debt is
+  read hourly), and each read of an account also reads every reserve it holds, so
+  `user_reserve_latest` is as fresh as the account.
 - `shortcut: a reorg publishes reorg {from_block} and the replacing blocks; latest-state keys written by the replaced blocks stay until the next read overwrites them.`
 - `shortcut: historical state is read at blocks with events and once an hour, with prices from getReservesPrices; if one source of a Spoke reverts, that Spoke has no price at that block.`
   Read per reserve (`getReservePrice`) if that is seen in `raw.calls` (`ok = 0`).
-- Not built: `reparse` as a command (drop the `core` partitions and reset the `core` cursor by
-  hand), `lock:*`, `q:*`, `price_sources`, `labels`, `canonical`, `parser_runs`, and discovery of
-  interest rate strategies and access managers. After a backfill or reparse run
-  `infra/clickhouse/rollup_backfill.sh`.
+- Reparse is `infra/clickhouse/reparse.sh`: it resets the `core` cursor and the processor walks
+  `raw` again from each chain's first block, replacing rows as it goes (nothing is dropped first, so
+  the API keeps answering). It is always the whole range, not a chosen one. After a backfill or a
+  reparse run `infra/clickhouse/rollup_backfill.sh`.
+- `canonical` is the token's symbol in lower case, not a curated mapping: right for USDC on four
+  chains, wrong the day two different tokens share a symbol. Replace with `registry/assets.toml`
+  then.
+- Not built: `lock:*`, `q:*`, `meta.price_sources` (the source is on each `core.prices` row
+  instead), `labels`, token logos, `parser_runs`, receipts (gas, liquidator profit).
 
 ### RPC budget
 
@@ -253,8 +267,9 @@ a result) using the same `crates/protocol` code as the parser. It does not write
 | Hub asset, Hub asset × Spoke | the block had an event for it, plus an hourly heartbeat |
 | Spoke reserve | the block had an event for it, plus hourly |
 | Oracle prices | every block live (one multicall per chain); during backfill on blocks with events plus hourly |
-| User position | the block had an event for that user |
-| User health factor | `live` only, by tier: HF < 1.1 every block, < 1.5 every 5 min, the rest hourly |
+| User position | the block had an event for that user; `live`: with every read of the account |
+| User health factor | `live` only, by tier: HF < 1.1 every poll, < 1.5 every 5 min, the rest hourly, including accounts with no debt |
+| Price source update time | hourly, with the heartbeat |
 
 Tier reads are not replayed in `catching_up`: the tier depends on the previous reading, so history
 would have to be walked one block at a time on an archive node. Historical health factor exists at
@@ -290,6 +305,36 @@ batch and the cursor, so rows above the cursor may exist; they are written again
 is a `ReplacingMergeTree` on the natural key, so that is harmless. Nothing is deleted. The fetcher
 always restarts in `catching_up`, which is a short walk when it was `live` a moment ago.
 
+## Aave v3 totals
+
+Read so v4 can be compared with v3 (the Adoption page). Totals only: no positions, no events.
+
+- **Markets.** `registry/v3.toml`: 24 markets on 21 chains, from Aave's address book. A chain is
+  read when `RPC_HTTP_{chain_id}` is set; most of these chains have no v4 and no entry in
+  `registry/chains.toml`.
+- **A reading** is two multicalls at one block per market. First `getPriceOracle` and
+  `getPoolDataProvider` on the market's PoolAddressesProvider and `getReservesList` on its Pool,
+  so the addresses are the ones in force at that block. Then, per reserve,
+  `getATokenTotalSupply`, `getTotalDebt`, `getAssetPrice` and the token's `decimals`, plus the
+  oracle's `BASE_CURRENCY_UNIT`.
+- **When.** One reading per hour for the last 7 days and one per day (00:00 UTC) back to
+  2026-03-24, the first v4 day. The block is found by time: any block in the hour's first 20
+  minutes. An hour is read once it is 30 minutes old.
+  `shortcut: the settle tag is not used for v3; a reorg deeper than 30 minutes would leave a stale reading.`
+- **Stored** as returned in `raw.v3_calls` (`chain_id, market, block_number, block_time, target,
+  selector, args, ok, result`). A row with `market = ''` marks the hour as done for the chain; the
+  task reads every due hour that has no marker, newest first, so a restart or a new chain
+  backfills by itself.
+- **Decoded** in SQL by the view `core.v3_reserve_state` (one row per reserve per reading:
+  `supplied, borrowed, price, supplied_usd, borrowed_usd`). Every answer it uses is one uint256.
+- **Gaps.** When a node no longer has a block's state the market is skipped for that hour and the
+  hour is still marked done. The provider keeps only recent state on Monad and MegaETH, so their
+  v3 history starts later than the others. Harmony and Fantom (frozen, nothing supplied) and
+  Aptos (not EVM) are not read.
+- **Not the same as DefiLlama's TVL:** every reserve and every supplier is counted; DefiLlama
+  leaves out some tokens and Ethena's backing wallets, and lists the Ink market as a separate
+  protocol. Borrowed matches it within 1% per chain (2026-11-18).
+
 ## Prices
 
 Each Spoke has one `AaveOracle`. Each reserve has a source that answers `latestAnswer()` and
@@ -297,8 +342,12 @@ Each Spoke has one `AaveOracle`. Each reserve has a source that answers `latestA
 
 - **Price of record:** `AaveOracle.getReservesPrices` at the block. It is the price the protocol
   liquidates with, so it is the price we show.
-- **Source detail:** `getReserveSource` gives the feed address. Where the feed is a Chainlink
-  aggregator we also read `latestRoundData()` for `updatedAt`; that is what "stale price" means.
+- **Source detail:** the Spoke's `UpdateReservePriceSource` event gives the source address, written
+  to `core.prices.source`. Once an hour (the heartbeat) each source is asked `latestRoundData()`;
+  its `updatedAt` goes to `core.prices.source_updated_at`, and a new update time writes a price row
+  even when the price did not move. That is what "stale price" means. Checked 2026-11-18: 25 of
+  the 59 sources answer it; the rest are adapters with only `latestAnswer()`, and have no update
+  time. Read from 2026-11-18 on: not backfilled.
 - **One price per Hub asset:** the median of the Spokes' prices for that asset on that chain
   (still the open decision in dashboard-data.md).
 - **No external price source.** A reserve cannot be listed without an on-chain source, so there is
@@ -450,9 +499,13 @@ buckets and leaves older ones alone. Chosen over incremental (insert-triggered) 
 double-count when a block is written twice and cannot follow a reparse. A reparse of old data
 re-runs the same `SELECT` once without the time filter.
 
-First rollups: `events_hourly`, `events_daily`, `hub_asset_hourly` (last state per hour, for supply,
+Rollups: `events_hourly`, `events_daily`, `hub_asset_hourly` (last state per hour, for supply,
 debt, usage and rate charts), `hub_spoke_hourly`, `reserve_hourly`, `liquidations_daily`. More are
 added when a panel needs one, not before.
+
+Two plain views compute at read time (`0009_derived.sql`): `core.liquidations`, one row per
+`LiquidationCall` with debt, collateral seized, bonus and protocol fee in USD; and
+`core.hub_asset_apy`, the supply APY measured from the share price over 24 hours and 7 days.
 
 ### meta
 
@@ -595,8 +648,7 @@ Worker; D1 is the smaller step, since those reads come from the edge anyway.
 | A new view call | scheduler rule, parser | yes, calls only, from an archive node |
 | Gas and liquidator profit | `raw.receipts` for our transactions (fetched by hash) | receipts only |
 | Exact price-change blocks | watch the Chainlink aggregators' `AnswerUpdated` logs | logs of those feeds |
-| Governance and access changes | add the `AccessManager` and configurator addresses to the watch list | logs of those contracts |
-| Tokenization Spoke share moves (`Transfer`, `Approval`) | parser rules; kept in `raw` only for now, by decision | no |
+| Configurator and position manager activity | add their addresses to the watch list (not known yet; the `AccessManager` is watched) | logs of those contracts |
 | Babylon Spoke | its ABI (none deployed yet) | no, once watched |
 | Alerts | a consumer of `risk:{chain_id}` and `state:{chain_id}` | no |
 | User accounts, saved views | D1 or Postgres (above) | no |

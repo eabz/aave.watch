@@ -59,7 +59,8 @@ Refresh: **live** = pushed over the stream as it changes, **5m**, **1h** = cache
 | Total supplied | Σ Hub assets `getAddedAssets` × price | `hub_asset_state` | live |
 | Total borrowed | Σ `getAssetTotalOwed` × price (drawn + premium) | `hub_asset_state` | live |
 | Available liquidity | Σ `liquidity` × price; swept shown apart | `hub_asset_state` | live |
-| Supplied / borrowed over time | same, daily and hourly | rollup of `hub_asset_state` | 1h |
+| Supplied / borrowed over time | same, daily and hourly, with the change per step (Adoption page) | rollup of `hub_asset_state` | 1h |
+| v4 share of Aave | v4 / (v3 + v4), supplied and borrowed, over time and per chain (Adoption page) | rollup of `hub_asset_state`, `v3_reserve_state` | 1h |
 | Split by Hub, split by Spoke | same totals grouped | `hub_asset_state`, `hub_spoke_state` | 5m |
 | 24h volume by action | Σ USD of Supply, Withdraw, Borrow, Repay, LiquidationCall | `events` | 5m |
 | Active users 24h / 7d / 30d | distinct `user` in Spoke activity events | `events` | 1h |

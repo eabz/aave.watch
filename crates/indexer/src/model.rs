@@ -39,6 +39,10 @@ pub struct World {
     pub vaults: BTreeMap<String, (String, u32)>,
     /// (spoke, reserve id, dynamic config key) -> (collateral factor, max liquidation bonus, liquidation fee)
     pub dynamic: HashMap<(String, u32, u32), (u32, u32, u32)>,
+    /// (spoke, reserve id) -> the price source its oracle reads
+    pub sources: BTreeMap<(String, u32), String>,
+    /// Contracts watched for their logs only: interest rate strategies and access managers.
+    pub others: BTreeSet<String>,
 }
 
 /// Something a view can be read for.
@@ -52,7 +56,10 @@ pub enum Entity {
 }
 
 /// The events `World` learns from: enough to rebuild it from `raw.logs` without the rest.
-pub const REGISTRY_EVENTS: [(&str, &str); 8] = [
+pub const REGISTRY_EVENTS: [(&str, &str); 11] = [
+    ("hub", "UpdateAssetConfig"),
+    ("hub", "AuthorityUpdated"),
+    ("spoke", "UpdateReservePriceSource"),
     ("hub", "AddAsset"),
     ("hub", "AddSpoke"),
     ("spoke", "AddReserve"),
@@ -97,6 +104,14 @@ impl World {
                 let oracle = text(args, "oracle").to_string();
                 new.push((oracle.clone(), "decimals"));
                 self.oracles.insert(contract.to_string(), oracle);
+            }
+            "UpdateAssetConfig" if hub => drop(self.others.insert(text(&args["config"], "irStrategy").to_string())),
+            // Hubs and Spokes of every kind name the same access manager.
+            "AuthorityUpdated" => drop(self.others.insert(text(args, "authority").to_string())),
+            "UpdateReservePriceSource" => {
+                if let Some(reserve) = int(args, "reserveId") {
+                    self.sources.insert((contract.to_string(), reserve), text(args, "priceSource").to_string());
+                }
             }
             "SetTokenizationSpokeImmutables" => {
                 if let Some(id) = int(args, "assetId") {
@@ -172,6 +187,21 @@ impl World {
                 (!ids.is_empty()).then(|| (oracle.clone(), codec.call("getReservesPrices", &[uints(&ids)])))
             })
             .collect()
+    }
+
+    /// `latestRoundData` on every price source, for the time it was last updated. Sources that are
+    /// not Chainlink feeds revert; that is recorded and means "no update time".
+    pub fn source_calls(&self, codec: &Codec) -> Vec<(String, String)> {
+        let sources: BTreeSet<&String> = self.sources.values().collect();
+        sources.into_iter().map(|source| (source.clone(), codec.call("latestRoundData", &[]))).collect()
+    }
+
+    /// Every contract whose logs are fetched: Hubs, Spokes of every kind, oracles, interest rate
+    /// strategies and access managers.
+    pub fn watch(&self) -> BTreeSet<String> {
+        let spokes = self.hub_spokes.iter().map(|(_, _, spoke)| spoke);
+        let zero = format!("0x{}", "0".repeat(40));
+        self.hubs.iter().chain(spokes).chain(self.oracles.values()).chain(&self.others).filter(|a| a.len() == 42 && **a != zero).cloned().collect()
     }
 
     pub fn reserve_ids(&self, spoke: &str) -> Vec<u32> {
@@ -253,6 +283,15 @@ mod tests {
         let codec = Codec::new();
         assert_eq!(w.everything().len(), 4); // one asset, one Spoke line, two reserves
         assert_eq!(w.reserve_ids(SPOKE), [0, 5]);
+        // watched: the Hub, its Spoke, the Spoke's oracle; then a strategy and an access manager
+        assert_eq!(w.watch().len(), 3);
+        let mut w = w;
+        w.apply(HUB, "UpdateAssetConfig", &json!({"assetId": "3", "config": {"irStrategy": USER}}));
+        w.apply(SPOKE, "AuthorityUpdated", &json!({"authority": "0x0000000000000000000000000000000000000000"}));
+        assert_eq!(w.watch().len(), 4); // the zero address is never watched
+        w.apply(SPOKE, "UpdateReservePriceSource", &json!({"reserveId": "0", "priceSource": USER}));
+        w.apply(SPOKE, "UpdateReservePriceSource", &json!({"reserveId": "5", "priceSource": USER}));
+        assert_eq!(w.source_calls(&codec).len(), 1); // one read per source, not per reserve
         let prices = w.price_calls(&codec);
         assert_eq!(prices.len(), 1);
         assert_eq!(prices[0].0, ORACLE);

@@ -11,4 +11,4 @@ awk '
   view && /^WHERE block_time >= / { next }
   view { print }
   view && /;$/ { view = 0 }
-' 0007_core_rollups.sql | clickhouse-client "$@" --multiquery
+' [0-9]*.sql | clickhouse-client "$@" --multiquery

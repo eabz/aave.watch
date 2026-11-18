@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import { useApi } from './api.ts'
 import { Account } from './pages/Account.tsx'
+import { Adoption } from './pages/Adoption.tsx'
 import { Feed } from './pages/Feed.tsx'
 import { Hubs } from './pages/Hubs.tsx'
 import { Risk } from './pages/Risk.tsx'
@@ -9,7 +10,7 @@ import { navigate, useChain, useLocation, withChain } from './router.ts'
 import { CHAIN_NAMES } from './lib.ts'
 import { Icon } from './ui.tsx'
 
-const NAV = [['/', 'Risk'], ['/hubs', 'Hubs'], ['/spokes', 'Spokes'], ['/feed', 'Live feed']] as const
+const NAV = [['/', 'Risk'], ['/hubs', 'Hubs'], ['/spokes', 'Spokes'], ['/adoption', 'Adoption'], ['/feed', 'Live feed']] as const
 const FALLBACK = Object.entries(CHAIN_NAMES).map(([chain_id, name]) => ({ chain_id: Number(chain_id), name }))
 
 function ThemeSwitch() {
@@ -77,6 +78,7 @@ export default function App() {
     path === '/' ? <Risk chain={chain} /> :
     path === '/hubs' ? <Hubs chain={chain} /> :
     path === '/spokes' ? <Spokes chain={chain} /> :
+    path === '/adoption' ? <Adoption chain={chain} /> :
     path === '/feed' ? <Feed chain={chain} /> :
     account ? <Account chain={chain} user={account} /> :
     (
