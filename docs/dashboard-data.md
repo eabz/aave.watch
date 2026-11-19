@@ -61,7 +61,7 @@ changes, **5m**, **1h** = cached query.
 
 | Page | Opens with | Then | Numbers from |
 |---|---|---|---|
-| **Now** (`/`) | Deposited, borrowed, lent out, v4 share of Aave, wallets close to liquidation, each with its change over 7 days | Deposits and borrows over time; deposits by chain; big moves (the largest recent Supply, Withdraw, Borrow, Repay, LiquidationCall); the biggest assets with their rates | 1, 7 |
+| **Now** (`/`) | Deposited, borrowed, lent out, v4 share of Aave, wallets close to liquidation, each with its change over 7 days | Deposits and borrows over time; deposits by chain; v4's share of Aave over time (of deposits and of loans) and v3 next to v4 on every chain v3 runs on; big moves (the largest recent Supply, Withdraw, Borrow, Repay, LiquidationCall); the biggest assets with their rates | 1, 7 |
 | **Rates** (`/rates`) | Every asset in every pool: deposited, earn (7 days), borrow rate, lent out | Filter by kind of asset and by chain; the list of pools | 2 |
 | **Close calls** (`/close-calls`) | Wallets close to liquidation and those that can be liquidated now, biggest loans first | Recent liquidations; limits nearly full; anything paused, frozen or halted; bad debt; the list of markets | 5, 6 |
 | **Search** | Tokens, pools, markets, wallets, in that order; the biggest of each before a word is typed | A pasted address opens the wallet | registry |

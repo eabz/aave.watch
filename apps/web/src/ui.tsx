@@ -130,18 +130,17 @@ export function Move({ e, now }: { e: Row; now: number }) {
   )
 }
 
-/** The reading stamp at the foot of a page: when the newest figure was read, and the Show blocks switch. */
+/** Says so when a page's newest reading is over two hours old. Fresh readings need no line. */
 export function Stamp({ rows }: { rows: (Row | null | undefined)[] }) {
   const now = useNow()
-  const [blocks, toggle] = useBlocks()
   const times = rows.filter((r) => r?.block_time).map((r) => ms(r!.block_time))
   const newest = times.length ? Math.max(...times) : null
-  // a wallet nobody touches is read once an hour, so a reading is stale only after two
-  const live = newest != null && now - newest < 10 * 60_000, stale = newest != null && now - newest > 120 * 60_000
-  return (
-    <div className="pills caption">
-      {newest == null ? <span>Reading…</span> : stale ? <><span className="pill c-amber"><Icon name="warning" />Stale</span><span>read {stamp(newest)}</span></> : <span>{live ? 'Live · read' : 'Read'} {stamp(newest)}</span>}
-      <button className="btn" type="button" aria-pressed={blocks} onClick={toggle}><Icon name="blocks" />{blocks ? 'Hide blocks' : 'Show blocks'}</button>
-    </div>
-  )
+  if (newest == null || now - newest < 120 * 60_000) return null
+  return <div className="pills caption"><span className="pill c-amber"><Icon name="warning" />Stale</span><span>read {stamp(newest)}</span></div>
+}
+
+/** The Show blocks switch, in the footer: puts the block and its age under every figure. */
+export function BlocksSwitch() {
+  const [blocks, toggle] = useBlocks()
+  return <button className="btn" type="button" aria-pressed={blocks} onClick={toggle}><Icon name="blocks" />{blocks ? 'Hide blocks' : 'Show blocks'}</button>
 }

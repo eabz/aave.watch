@@ -1,4 +1,5 @@
-//! The chain and Spoke registry, compiled in from `registry/*.toml`.
+//! The chain and Spoke registry, compiled in from `registry/*.toml`. Its Hubs and Spokes are a
+//! seed: what is synced is `meta.hubs` and `meta.spokes` (docs/data-pipeline.md, "Hub discovery").
 //! Only the fields code needs are read; the files carry more for people and for `meta.*`.
 
 use serde::Deserialize;

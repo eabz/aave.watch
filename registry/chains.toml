@@ -1,4 +1,6 @@
-# Chains and seed Hubs. Spokes, assets and reserves are discovered on chain from the Hubs.
+# Chains and seed Hubs. A seed, not the list: Hubs created later are discovered on chain and kept
+# in meta.hubs (docs/data-pipeline.md, "Hub discovery"). Spokes, assets and reserves are
+# discovered on chain from the Hubs.
 # Hub addresses: DefiLlama-Adapters projects/aave-v4/index.js, each checked on chain 2026-11-18
 # (getAssetCount answers). first_block is the block the contract's code first appears
 # (Base: the block of the Hub's first log).

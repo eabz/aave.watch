@@ -11,7 +11,7 @@ import { Token as TokenPage } from './pages/Token.tsx'
 import { Wallet as WalletPage } from './pages/Wallet.tsx'
 import { useLive } from './live.ts'
 import { navigate, useLocation } from './router.ts'
-import { Chain, Icon, KindPill, Mark, Token } from './ui.tsx'
+import { BlocksSwitch, Chain, Icon, KindPill, Mark, Token } from './ui.tsx'
 
 const MENU = [['/', 'Now'], ['/rates', 'Rates'], ['/close-calls', 'Close calls']] as const
 const ADDRESS = /^0x[0-9a-f]{40}$/
@@ -46,7 +46,7 @@ function Search() {
       body: <><Token chain={hubKey(t.row).chain} token={t.row.token} symbol={t.row.symbol} plain /><KindPill symbol={t.row.symbol} /></> })
     for (const h of hubs ?? []) {
       const total = (assets ?? []).filter((r) => hubKey(r).hub === h.address && hubKey(r).chain === Number(h.chain_id)).reduce((a, r) => a + num(r.added_usd), 0)
-      hits.push({ key: `p${h.chain_id}${h.address}`, href: `/pool/${h.chain_id}/${h.address}`, group: 'Pools', text: `${h.name} pool`.toLowerCase(), size: total, note: `${usd(total)} deposited`, body: <Chain id={h.chain_id} name={h.name} /> })
+      if (total > 0) hits.push({ key: `p${h.chain_id}${h.address}`, href: `/pool/${h.chain_id}/${h.address}`, group: 'Pools', text: `${h.name || h.address} pool`.toLowerCase(), size: total, note: `${usd(total)} deposited`, body: <Chain id={h.chain_id} name={h.name || short(h.address)} /> })
     }
     for (const s of spokes ?? []) {
       const owed = (lines ?? []).filter((r) => r.spoke === s.address && Number(r.chain_id) === Number(s.chain_id)).reduce((a, r) => a + num(r.owed_usd), 0)
@@ -99,20 +99,16 @@ function Search() {
   )
 }
 
+/** One compact button: day or night. Until it is pressed the site follows the system setting. */
 function ThemeSwitch() {
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? '')
-  const pick = (t: string) => {
-    if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme
-    try { localStorage.setItem('aw-theme', t) } catch { /* private mode: the choice lasts for this page */ }
-    setTheme(t)
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
+  const next = theme === 'dark' ? 'light' : 'dark'
+  const pick = () => {
+    document.documentElement.dataset.theme = next
+    try { localStorage.setItem('aw-theme', next) } catch { /* private mode: the choice lasts for this page */ }
+    setTheme(next)
   }
-  return (
-    <span className="seg" role="group" aria-label="Theme">
-      <button type="button" aria-pressed={theme === ''} onClick={() => pick('')}>System</button>
-      <button type="button" aria-pressed={theme === 'light'} onClick={() => pick('light')}><Icon name="sun" />Day</button>
-      <button type="button" aria-pressed={theme === 'dark'} onClick={() => pick('dark')}><Icon name="moon" />Night</button>
-    </span>
-  )
+  return <button className="btn btn--icon" type="button" onClick={pick} aria-label={`Switch to ${next === 'dark' ? 'night' : 'day'}`} title={`Switch to ${next === 'dark' ? 'night' : 'day'}`}><Icon name={next === 'dark' ? 'moon' : 'sun'} /></button>
 }
 
 export default function App() {
@@ -143,12 +139,13 @@ export default function App() {
             {MENU.map(([to, label]) => <a key={to} href={to} aria-current={section === to ? 'page' : undefined}>{label}</a>)}
           </nav>
           <Search />
+          <ThemeSwitch />
         </div>
       </header>
       <main id="main">{page}</main>
       <footer className="foot">
         <span>aave.watch is an independent project. Not affiliated with Aave Labs or the Aave DAO.</span>
-        <ThemeSwitch />
+        <BlocksSwitch />
       </footer>
     </>
   )

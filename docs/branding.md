@@ -76,10 +76,11 @@ percent `4.96%`, `68%` in a bar; change of an amount `▲ 7.6%`, `▼ 2.1%`; cha
 page is $137.1M on every page (B two decimals, M one, K none, under $1,000 to the cent). A value
 too small to round is "under 0.01%", not `0.00%`.
 
-**The reading stamp.** One line at the foot of a page: "Live · read 19 Nov 2026, 01:50 UTC · Show
-blocks". "Show blocks" puts the block number under every figure on the page and is remembered. A
-reading under 10 minutes old says "Live"; older, it says only "Read"; over two hours old it says
-"Stale" with an icon in `amber`. The dot on the mark pulses while the live stream is connected.
+**Freshness.** A page does not print when it was read (the owner dropped the "Live · read ..."
+line on 2026-11-19). The dot on the mark pulses while the live stream is connected. Only when a
+page's newest reading is over two hours old does it say so: "Stale · read 19 Nov 2026, 01:38 UTC",
+with an icon in `amber`. "Show blocks", in the footer, puts the block number and its age under
+every figure on the page and is remembered.
 
 ## Colour
 
@@ -191,7 +192,8 @@ on a phone, 24px above 720px; content is at most 1040px wide. Depth is a lighter
 
 ## Components, the rules that matter
 
-- **Header.** The logo, three menu items (Now, Rates, Close calls) and the search box. Nothing else.
+- **Header.** The logo, three menu items (Now, Rates, Close calls), the search box and, at its
+  right, one icon button that switches day and night. Nothing else.
 - **Search.** One box, opened with `/`. It finds tokens, pools, markets and wallets, grouped in that
   order; before a word is typed it lists the biggest of each. A pasted address opens the wallet.
 - **Everything is a link.** A token, pool, market or address shown anywhere links to its page.
@@ -205,7 +207,7 @@ on a phone, 24px above 720px; content is at most 1040px wide. Depth is a lighter
   protocol's word lives ("The protocol calls this the collateral factor").
 - **Show blocks.** Off by default. On, each figure carries "block 26,445,893 · 12s ago" under it in
   12px `ink-2`.
-- **Footer.** The reading stamp, the not-affiliated line, the theme switch. On every page.
+- **Footer.** The not-affiliated line and the Show blocks switch. On every page.
 - **Stat strip.** The first thing on a page: three to five figures, each a label, a number and one
   line under it that explains or compares it. It wraps to two columns on a phone, with no empty
   cell.
@@ -293,8 +295,8 @@ values change with no flash and the live dot is still.
 
 ## Themes
 
-Day and night are both designed. The site follows the reader's system setting; a switch in the
-footer overrides it and is remembered.
+Day and night are both designed. The site follows the reader's system setting; the icon button in
+the header (a moon in day, a sun in night) overrides it and is remembered.
 
 ## Variables
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { type Row, useApi } from '../api.ts'
-import { usd } from '../format.ts'
+import { short, usd } from '../format.ts'
 import { CHAINS, chainName, hubKey, type Kind, kind, KIND_LABEL, KINDS, num, sum } from '../lib.ts'
 import { AssetTable } from '../tables.tsx'
 import { poolPath } from '../lib.ts'
@@ -15,7 +15,7 @@ export function Rates() {
   const pools = useMemo(() => {
     const by = new Map<string, Row[]>()
     for (const r of all ?? []) { const key = poolPath(r); by.set(key, [...(by.get(key) ?? []), r]) }
-    return [...by.values()].map((rs) => ({ first: rs[0], dep: sum(rs, 'added_usd'), bor: sum(rs, 'owed_usd'), n: rs.filter((r) => num(r.added_usd) > 0).length })).sort((a, b) => b.dep - a.dep)
+    return [...by.values()].map((rs) => ({ first: rs[0], dep: sum(rs, 'added_usd'), bor: sum(rs, 'owed_usd'), n: rs.filter((r) => num(r.added_usd) > 0).length })).filter((p) => p.dep > 0).sort((a, b) => b.dep - a.dep)
   }, [all])
 
   return (
@@ -46,7 +46,7 @@ export function Rates() {
               <thead><tr><th scope="col">Pool</th><th scope="col" className="r">Deposited</th><th scope="col" className="r">Borrowed</th><th scope="col" className="r">Assets</th><th scope="col" className="r">Lent out</th></tr></thead>
               <tbody>{pools.map((p) => (
                 <tr key={poolPath(p.first)}>
-                  <td><Chain id={hubKey(p.first).chain} name={p.first.hub_name} href={poolPath(p.first)} /></td>
+                  <td><Chain id={hubKey(p.first).chain} name={p.first.hub_name || short(hubKey(p.first).hub)} href={poolPath(p.first)} /></td>
                   <td className="r">{usd(p.dep)}</td><td className="r">{usd(p.bor)}</td><td className="r">{p.n}</td><td><Used value={p.dep ? p.bor / p.dep : 0} /></td>
                 </tr>
               ))}</tbody>

@@ -22,7 +22,7 @@ use tokio::time::sleep;
 
 use crate::calls::{Plan, Reason, read_block};
 use crate::fetch::{ClickHouse, Rpc, env_u64, header, log_row};
-use crate::model::{Entity, World, decode, text};
+use crate::model::{Entity, decode, text};
 
 /// Polled heads remembered, to find where a reorg forked.
 const REMEMBERED: usize = 256;
@@ -60,12 +60,10 @@ async fn session(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, db: &mut C
         sleep(Duration::from_secs(30)).await;
     };
 
-    let mut world = World::new(chain);
-    for log in ch.logs(id, chain.start_block, u64::MAX, true).await? {
-        if let Some((_, name, args)) = decode(&codec, &log) {
-            world.apply(text(&log, "address"), name, &args);
-        }
-    }
+    let mut world = ch.world(chain, &codec, u64::MAX).await?;
+    // Changes when contracts were decoded behind the cursor: the registry is then read again.
+    let late_done = async || anyhow::Ok(ch.marks(id, "late-core:").await?.into_iter().map(|(_, block)| block).sum::<u64>());
+    let mut late = late_done().await?;
     // Every account with a position is read on a schedule, and with it each reserve it holds.
     // All are due at once; the per-poll cap below spreads the first reads.
     let sql = format!(
@@ -117,8 +115,17 @@ async fn session(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, db: &mut C
             }
         }
 
+        if late_done().await? != late {
+            late = late_done().await?;
+            world = ch.world(chain, &codec, u64::MAX).await?;
+            append(db, id, &json!({"v": keys::ENVELOPE_VERSION, "type": "registry", "chain_id": id})).await?;
+        }
+        // A new Hub is admitted in the poll that holds its first AddAsset, so the logs fetched
+        // next already include it (hubs.rs).
+        let announced = rpc.logs_once(&[], Some(crate::hubs::add_asset()), from, head.number).await?;
+        let hubs = crate::hubs::consider(chain, rpc, ch, &mut world.hubs, &announced).await?;
         let watch: Vec<String> = world.watch().into_iter().collect();
-        let logs = rpc.logs_once(&watch, from, head.number).await?;
+        let logs = rpc.logs_once(&watch, None, from, head.number).await?;
         let (times, _) = rpc.block_times(&logs).await?;
         let mut rows = Vec::with_capacity(logs.len());
         let mut plan = Plan::new();
@@ -185,7 +192,7 @@ async fn session(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, db: &mut C
         let batch = json!({
             "v": keys::ENVELOPE_VERSION, "type": "blocks", "chain_id": id, "settled": settled,
             "head": {"number": head.number, "hash": head.hash, "parent_hash": head.parent_hash, "time": head.time},
-            "logs": rows, "calls": calls,
+            "logs": rows, "calls": calls, "hubs": hubs,
         });
         append(db, id, &batch).await?;
         last_time = head.time;

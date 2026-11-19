@@ -1,10 +1,10 @@
 //! `indexer fetch`: the only process that talks to a node. Spec: docs/data-pipeline.md.
 //!
-//! This version is the `catching_up` state only: it walks settled blocks over HTTP in parallel
-//! ranges, stores every log of the watched contracts in `raw.logs`, and keeps walking as the
-//! settle tag advances. No view calls and no WebSocket tip yet.
+//! This file is the `catching_up` state: it walks settled blocks over HTTP in parallel ranges,
+//! stores every log of the watched contracts in `raw.logs`, and keeps walking as the settle tag
+//! advances. The watch list grows by itself: new Hubs (hubs.rs) and what the Hubs announce.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::Duration;
@@ -26,11 +26,13 @@ const ORACLE_SELECTOR: &str = "0x38013f02";
 pub async fn run() -> Result<()> {
     let ch = ClickHouse::new();
     let mut tasks = tokio::task::JoinSet::new();
+    let mut v4 = Vec::new();
     for chain in registry::chains() {
         let var = format!("RPC_HTTP_{}", chain.chain_id);
         match env::var(&var) {
             Ok(url) => {
                 let rpc = Rpc::new(url);
+                v4.push((chain.clone(), rpc.clone()));
                 // The tip holds its health factor reads until their block settles; the calls
                 // walk must not pass a block whose reads are still held. See tip.rs.
                 let held_below = std::sync::Arc::new(AtomicU64::new(u64::MAX));
@@ -41,6 +43,8 @@ pub async fn run() -> Result<()> {
             Err(_) => eprintln!("{}: {var} is not set, chain skipped", chain.name),
         }
     }
+    // Names from Aave's API, the Spoke rows of meta.spokes, and a second look at Hub candidates.
+    tasks.spawn(crate::hubs::refresh(ch.clone(), v4));
     // Aave v3 totals: one task per chain that has a v3 market and an endpoint. See v3.rs.
     let mut v3: std::collections::BTreeMap<u32, Vec<registry::V3Market>> = Default::default();
     for market in registry::v3_markets() {
@@ -63,7 +67,13 @@ async fn run_chain(chain: registry::Chain, rpc: Rpc, ch: ClickHouse) -> Result<(
     let codec = Codec::new();
     let first = chain.start_block;
     let mut world = World::new(&chain);
-    let mut watch = watch_list(&chain, &rpc, &ch, &codec, &mut world).await?;
+    // Hubs announced while no walk was looking (an older binary, or blocks the one-off backfill
+    // has not reached): admitted here, their logs fetched by `watch_list`.
+    let upto = ch.cursor(chain.chain_id, "raw").await?.unwrap_or(0);
+    let mut hubs = world.hubs.clone();
+    hubs.extend(ch.hubs(chain.chain_id).await?);
+    crate::hubs::scan(&chain, &rpc, &ch, &mut hubs, upto).await?;
+    let mut watch = watch_list(&chain, &rpc, &ch, &codec, &mut world, upto, true).await?;
     let size = AtomicU64::new(env_u64("FETCH_RANGE", 2_000).clamp(1, MAX_RANGE));
     // How often to look at the settle tag once caught up.
     let idle = Duration::from_millis((chain.block_time_ms * 8).clamp(5_000, 120_000));
@@ -103,6 +113,15 @@ async fn round(
             bail!("settled block {number} changed: stored {hash}, the node now says {now}. Not fetching further");
         }
     }
+    // A Hub admitted elsewhere (the tip saw it first, or a candidate passed its second look) is
+    // in meta.hubs but not watched yet: its logs so far are fetched before the walk goes on.
+    if !ch.hubs(id).await?.is_subset(&world.hubs) {
+        *world = ch.world(chain, codec, u64::MAX).await?;
+    }
+    let unwatched: Vec<String> = world.watch().difference(watch).cloned().collect();
+    let upto = ch.cursor(id, "raw").await?.unwrap_or(0);
+    adopt(chain, rpc, ch, codec, world, watch, unwatched, upto, true).await?;
+
     let start = ch.cursor(id, "raw").await?.map_or(first, |c| c + 1);
     let settled = header(&rpc.call("eth_getBlockByNumber", json!([chain.settle_tag, false])).await?)?;
     if settled.number < start {
@@ -124,12 +143,14 @@ async fn round(
     let mut fetched = stream::iter(ranges)
         .map(|(from, to)| {
             let addresses = &addresses;
-            async move { (from, to, rpc.logs(addresses, from, to, size).await) }
+            // The second request has no address: any contract that emits AddAsset is a Hub candidate.
+            async move { (to, futures::join!(rpc.logs(addresses, None, from, to, size), rpc.logs(&[], Some(crate::hubs::add_asset()), from, to, size))) }
         })
         .buffered(env_u64("FETCH_PARALLEL", 4) as usize);
 
     let (mut stored, mut found) = (0usize, Vec::new());
-    while let Some((_, to, logs)) = fetched.next().await {
+    while let Some((to, (logs, announced))) = fetched.next().await {
+        crate::hubs::consider(chain, rpc, ch, &mut world.hubs, &announced).await?;
         found = new_addresses(codec, world, &logs, watch);
         if !found.is_empty() {
             break; // this range is not stored; it is fetched again with the new addresses
@@ -138,7 +159,10 @@ async fn round(
         let hash = if to == settled.number { settled.hash.as_str() } else { "" };
         ch.insert(
             "meta.cursor",
-            &[json!({"chain_id": id, "stream": "raw", "block_number": to, "block_hash": hash})],
+            &[
+                json!({"chain_id": id, "stream": "raw", "block_number": to, "block_hash": hash}),
+                json!({"chain_id": id, "stream": "hubscan", "block_number": to, "block_hash": ""}),
+            ],
         )
         .await?;
         // Creep back up after a node made us shrink.
@@ -146,17 +170,8 @@ async fn round(
     }
     drop(fetched);
 
-    for address in found {
-        let mut new = vec![address];
-        new.extend(rpc.oracle(&new[0]).await);
-        // A contract is deployed and configured before anything announces it. Fetch that history
-        // for it alone, back to the chain's start block, before the walk goes on. Rare, and one
-        // request per MAX_RANGE blocks.
-        let upto = ch.cursor(id, "raw").await?.unwrap_or(0);
-        let earlier = history(id, rpc, ch, &new, first, upto).await?;
-        eprintln!("{}: new contract {}, {earlier} earlier logs stored", chain.name, new[0]);
-        watch.extend(new);
-    }
+    let upto = ch.cursor(id, "raw").await?.unwrap_or(0);
+    adopt(chain, rpc, ch, codec, world, watch, found, upto, true).await?;
     if stored > 0 || settled.number - start >= 1_000 {
         let at = ch.cursor(id, "raw").await?.unwrap_or(0);
         eprintln!("{}: {stored} logs stored, raw cursor at {at} (settled {})", chain.name, settled.number);
@@ -179,18 +194,68 @@ async fn store(chain_id: u32, rpc: &Rpc, ch: &ClickHouse, logs: &[Value]) -> Res
     Ok(rows.len())
 }
 
-/// Every log of `addresses` from `first` to `upto`, stored. Marks each address as done, so a
-/// contract with no logs at all is not walked again on the next start.
-async fn history(chain_id: u32, rpc: &Rpc, ch: &ClickHouse, addresses: &[String], first: u64, upto: u64) -> Result<usize> {
-    let (size, mut from, mut stored) = (AtomicU64::new(MAX_RANGE), first, 0);
+/// Starts watching contracts found after the walk passed their first logs: a new Hub, and whatever
+/// its logs announce in turn. A contract is deployed and configured before anything announces it,
+/// so its logs are fetched for it alone, from the chain's start block up to `upto`, before the
+/// walk goes on. Rare, and one request per MAX_RANGE blocks.
+#[allow(clippy::too_many_arguments)]
+async fn adopt(
+    chain: &registry::Chain,
+    rpc: &Rpc,
+    ch: &ClickHouse,
+    codec: &Codec,
+    world: &mut World,
+    watch: &mut BTreeSet<String>,
+    mut found: Vec<String>,
+    upto: u64,
+    watching: bool,
+) -> Result<()> {
+    while let Some(address) = found.pop() {
+        if watch.contains(&address) {
+            continue;
+        }
+        let mut new = vec![address];
+        new.extend(rpc.view_address(&new[0], ORACLE_SELECTOR).await.filter(|oracle| !watch.contains(oracle)));
+        let earlier = history(chain.chain_id, rpc, ch, codec, world, &new, chain.start_block, upto, watching).await?;
+        eprintln!("{}: new contract {}, {earlier} earlier logs stored", chain.name, new[0]);
+        watch.extend(new);
+        found.extend(world.watch().difference(watch).cloned());
+    }
+    Ok(())
+}
+
+/// Every log of `addresses` up to `upto`, stored and shown to `world`. It then marks each address:
+/// `late:` says its logs up to that block arrived behind the cursors, so the calls stage and the
+/// processor go back for them (calls.rs and process.rs, `late`); `watch:`, written only by a
+/// process that goes on watching, says the walk has it from there, so the next start does not
+/// fetch it again. The one-off backfill writes `late:` alone, and the walk's next start fetches
+/// what came after it.
+#[allow(clippy::too_many_arguments)]
+async fn history(
+    chain_id: u32,
+    rpc: &Rpc,
+    ch: &ClickHouse,
+    codec: &Codec,
+    world: &mut World,
+    addresses: &[String],
+    first: u64,
+    upto: u64,
+    watching: bool,
+) -> Result<usize> {
+    let late = ch.marks(chain_id, "late:").await?;
+    let mut from = addresses.iter().map(|a| late.get(a).map_or(first, |block| block + 1)).min().unwrap_or(first);
+    let (size, mut stored) = (AtomicU64::new(MAX_RANGE), 0);
     while from <= upto {
         let to = (from + size.load(Relaxed) - 1).min(upto);
-        stored += store(chain_id, rpc, ch, &rpc.logs(addresses, from, to, &size).await).await?;
+        let logs = rpc.logs(addresses, None, from, to, &size).await;
+        apply(codec, world, &logs);
+        stored += store(chain_id, rpc, ch, &logs).await?;
         from = to + 1;
     }
+    let marks: &[&str] = if watching { &["late", "watch"] } else { &["late"] };
     let done: Vec<Value> = addresses
         .iter()
-        .map(|a| json!({"chain_id": chain_id, "stream": format!("watch:{a}"), "block_number": upto, "block_hash": ""}))
+        .flat_map(|a| marks.iter().map(move |mark| json!({"chain_id": chain_id, "stream": format!("{mark}:{a}"), "block_number": upto, "block_hash": ""})))
         .collect();
     ch.insert("meta.cursor", &done).await?;
     Ok(stored)
@@ -199,35 +264,40 @@ async fn history(chain_id: u32, rpc: &Rpc, ch: &ClickHouse, addresses: &[String]
 /// The contracts whose logs are fetched: what the stored events name (`World::watch`), plus the
 /// seed. `registry/spokes.toml` is a seed, not the list: its Spokes are watched from the first
 /// block so their history costs no extra request; anything else is found from events.
-async fn watch_list(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, codec: &Codec, world: &mut World) -> Result<BTreeSet<String>> {
+///
+/// Only the seed is taken to be complete from the first block. Any other contract (a discovered
+/// Hub or Spoke, an interest rate strategy, an access manager) was announced in logs stored before
+/// it was watched: unless a `watch:` mark says the walk already has it, its logs up to `upto` are
+/// fetched here, once. `watching` is false for the one-off backfill, which does not go on walking.
+pub(crate) async fn watch_list(
+    chain: &registry::Chain,
+    rpc: &Rpc,
+    ch: &ClickHouse,
+    codec: &Codec,
+    world: &mut World,
+    upto: u64,
+    watching: bool,
+) -> Result<BTreeSet<String>> {
     let id = chain.chain_id;
-    let mut watch = BTreeSet::new();
+    let mut watch: BTreeSet<String> = chain.hubs.iter().map(|h| h.address.to_lowercase()).collect();
     // FETCH_NO_SEED=1 ignores the seed, so every Spoke has to be discovered. For testing discovery.
     let seed = if env_u64("FETCH_NO_SEED", 0) == 1 { Vec::new() } else { registry::spokes() };
     for s in seed.into_iter().filter(|s| s.chain_id == id) {
         watch.insert(s.address.to_lowercase());
         watch.extend(s.oracle.map(|o| o.to_lowercase()));
     }
-    for log in ch.logs(id, chain.start_block, u64::MAX, true).await? {
-        if let Some((_, name, args)) = crate::model::decode(codec, &log) {
-            world.apply(crate::model::text(&log, "address"), name, &args);
-        }
-    }
-    watch.extend(world.watch());
-    // Interest rate strategies and access managers were announced in logs stored before they
-    // were watched: their history is fetched once.
-    let upto = ch.cursor(id, "raw").await?.unwrap_or(0);
-    for address in world.others.clone().intersection(&watch) {
-        if upto > 0 && ch.cursor(id, &format!("watch:{address}")).await?.is_none() {
-            let earlier = history(id, rpc, ch, std::slice::from_ref(address), chain.start_block, upto).await?;
-            eprintln!("{}: now watching {address}, {earlier} earlier logs stored", chain.name);
-        }
+    *world = ch.world(chain, codec, u64::MAX).await?;
+    let marks = ch.marks(id, "watch:").await?;
+    let found: Vec<String> = world.watch().difference(&watch).filter(|a| !marks.contains_key(*a)).cloned().collect();
+    watch.extend(world.watch().into_iter().filter(|a| !found.contains(a)));
+    if upto > 0 {
+        adopt(chain, rpc, ch, codec, world, &mut watch, found, upto, watching).await?;
     }
     Ok(watch)
 }
 
-/// Contracts named by the events in these logs (as the node returned them) that are not watched yet.
-fn new_addresses(codec: &Codec, world: &mut World, logs: &[Value], watch: &BTreeSet<String>) -> Vec<String> {
+/// Shows `world` the events in these logs (as the node returned them).
+fn apply(codec: &Codec, world: &mut World, logs: &[Value]) {
     for log in logs {
         let topics: Vec<&str> = log["topics"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
         let (Some(address), Some(data)) = (log["address"].as_str(), log["data"].as_str()) else { continue };
@@ -235,7 +305,19 @@ fn new_addresses(codec: &Codec, world: &mut World, logs: &[Value], watch: &BTree
             world.apply(&address.to_lowercase(), name, &args);
         }
     }
+}
+
+/// Contracts named by the events in these logs that are not watched yet.
+fn new_addresses(codec: &Codec, world: &mut World, logs: &[Value], watch: &BTreeSet<String>) -> Vec<String> {
+    apply(codec, world, logs);
     world.watch().difference(watch).cloned().collect()
+}
+
+/// SQL condition for the events `World` is rebuilt from.
+pub(crate) fn registry_events() -> String {
+    let topics: Vec<String> =
+        crate::model::REGISTRY_EVENTS.iter().filter_map(|(kind, event)| abi::topic0(kind, event)).map(|t| format!("'{t}'")).collect();
+    format!("topic0 IN ({})", topics.join(","))
 }
 
 /// The address in a 32-byte topic or call result.
@@ -343,15 +425,16 @@ impl Rpc {
         reply.get("result").filter(|r| !r.is_null()).cloned().ok_or_else(|| anyhow!("{method}: no result"))
     }
 
-    /// Every log of `addresses` in `[from, to]`, in block order. When the node refuses a range it
+    /// Every log of `addresses` (of any contract when there are none) with that `topic` (any when
+    /// `None`) in `[from, to]`, in block order. When the node refuses a range it
     /// is halved, and `size` is lowered so the ranges that follow start smaller. A single block
     /// that keeps failing is retried until it answers: skipping it would leave a hole.
-    async fn logs(&self, addresses: &[String], from: u64, to: u64, size: &AtomicU64) -> Vec<Value> {
+    pub(crate) async fn logs(&self, addresses: &[String], topic: Option<&str>, from: u64, to: u64, size: &AtomicU64) -> Vec<Value> {
         let mut out = Vec::new();
         let mut todo = vec![(from, to)];
         let mut wait = Duration::from_secs(1);
         while let Some((a, b)) = todo.pop() {
-            let reply = self.logs_once(addresses, a, b).await;
+            let reply = self.logs_once(addresses, topic, a, b).await;
             match reply {
                 Ok(logs) => out.extend(logs),
                 Err(e) if a == b => {
@@ -377,15 +460,27 @@ impl Rpc {
     /// One range, one `eth_getLogs` per `FETCH_MAX_ADDRESSES` addresses (0, the default: a single
     /// request for all of them). Public nodes cap the filter at about 10 addresses; a paid
     /// endpoint with no cap costs one request per range.
-    pub(crate) async fn logs_once(&self, addresses: &[String], from: u64, to: u64) -> Result<Vec<Value>> {
+    pub(crate) async fn logs_once(&self, addresses: &[String], topic: Option<&str>, from: u64, to: u64) -> Result<Vec<Value>> {
         let per_request = match env_u64("FETCH_MAX_ADDRESSES", 0) {
             0 => addresses.len().max(1),
             n => n as usize,
         };
+        // No address is one request for the whole chain: only ever with a topic.
+        let chunks: Vec<&[String]> = match (addresses.is_empty(), topic) {
+            (true, None) => Vec::new(),
+            (true, Some(_)) => vec![&[]],
+            (false, _) => addresses.chunks(per_request).collect(),
+        };
         let mut out = Vec::new();
-        for chunk in addresses.chunks(per_request) {
-            let filter = json!([{"address": chunk, "fromBlock": format!("0x{from:x}"), "toBlock": format!("0x{to:x}")}]);
-            match self.call("eth_getLogs", filter).await? {
+        for chunk in chunks {
+            let mut filter = json!({"fromBlock": format!("0x{from:x}"), "toBlock": format!("0x{to:x}")});
+            if !chunk.is_empty() {
+                filter["address"] = json!(chunk);
+            }
+            if let Some(topic) = topic {
+                filter["topics"] = json!([topic]);
+            }
+            match self.call("eth_getLogs", json!([filter])).await? {
                 Value::Array(logs) => out.extend(logs),
                 other => bail!("eth_getLogs returned {}", short(other)),
             }
@@ -447,12 +542,13 @@ impl Rpc {
         Ok((times, headers))
     }
 
-    /// A standard Spoke's oracle; `None` for the kinds that have none.
-    async fn oracle(&self, spoke: &str) -> Option<String> {
-        let reply = self.call("eth_call", json!([{"to": spoke, "data": ORACLE_SELECTOR}, "latest"])).await.ok()?;
+    /// The address a view with no arguments answers now (a standard Spoke's `ORACLE()`, a Hub's
+    /// `authority()`); `None` when the contract has no such view or answers zero.
+    pub(crate) async fn view_address(&self, contract: &str, selector: &str) -> Option<String> {
+        let reply = self.call("eth_call", json!([{"to": contract, "data": selector}, "latest"])).await.ok()?;
         let word = reply.as_str().filter(|w| w.len() == 66)?;
-        let oracle = topic_address(word);
-        (oracle != format!("0x{}", "0".repeat(40))).then_some(oracle)
+        let answer = topic_address(word);
+        (answer != format!("0x{}", "0".repeat(40))).then_some(answer)
     }
 }
 
@@ -514,20 +610,50 @@ impl ClickHouse {
         Ok(text.trim().split_once('\t').and_then(|(number, hash)| Some((number.parse().ok()?, hash.to_string()))))
     }
 
-    /// Stored logs of `[from, to]` in chain order, each once. `registry_only` keeps just the
-    /// events `World` is rebuilt from.
-    pub(crate) async fn logs(&self, chain_id: u32, from: u64, to: u64, registry_only: bool) -> Result<Vec<Value>> {
-        let only = match registry_only {
-            true => {
-                let topics: Vec<String> = crate::model::REGISTRY_EVENTS
-                    .iter()
-                    .filter_map(|(kind, event)| abi::topic0(kind, event))
-                    .map(|t| format!("'{t}'"))
-                    .collect();
-                format!("AND topic0 IN ({})", topics.join(","))
+    /// The Hubs that are synced on a chain: the seed (`load-registry`) and every Hub admitted
+    /// since (hubs.rs). The one list every stage reads.
+    pub(crate) async fn hubs(&self, chain_id: u32) -> Result<BTreeSet<String>> {
+        let sql = format!("SELECT address FROM meta.hubs FINAL WHERE chain_id = {chain_id} FORMAT TSV");
+        Ok(self.query(&sql, String::new()).await?.lines().map(str::to_string).collect())
+    }
+
+    /// What the events stored up to block `upto` say exists, on top of the Hub list: the seed in
+    /// the binary plus `meta.hubs`. Every stage builds its `World` here.
+    pub(crate) async fn world(&self, chain: &registry::Chain, codec: &Codec, upto: u64) -> Result<World> {
+        let mut world = World::new(chain);
+        world.hubs.extend(self.hubs(chain.chain_id).await?);
+        for log in self.logs(chain.chain_id, chain.start_block, upto, &registry_events()).await? {
+            if let Some((_, name, args)) = crate::model::decode(codec, &log) {
+                world.apply(crate::model::text(&log, "address"), name, &args);
             }
-            false => String::new(),
-        };
+        }
+        Ok(world)
+    }
+
+    /// The marks of one kind in `meta.cursor` (`watch:`, `late:`, `late-calls:`, `late-core:`):
+    /// address -> block.
+    pub(crate) async fn marks(&self, chain_id: u32, prefix: &str) -> Result<BTreeMap<String, u64>> {
+        let sql = format!(
+            "SELECT substring(stream, {}), max(block_number) FROM meta.cursor \
+             WHERE chain_id = {chain_id} AND startsWith(stream, '{prefix}') GROUP BY stream FORMAT TSV",
+            prefix.len() + 1
+        );
+        let text = self.query(&sql, String::new()).await?;
+        text.lines().filter_map(|l| l.split_once('\t')).map(|(address, block)| Ok((address.to_string(), block.parse()?))).collect()
+    }
+
+    /// Contracts one stage has finished up to a block (its `ready` marks) and the next has not
+    /// (its `done` marks): address -> (done up to, 0 when never; ready up to).
+    pub(crate) async fn pending(&self, chain_id: u32, ready: &str, done: &str) -> Result<crate::calls::Late> {
+        let done = self.marks(chain_id, done).await?;
+        let ready = self.marks(chain_id, ready).await?;
+        Ok(ready.into_iter().filter(|(a, upto)| done.get(a).is_none_or(|at| at < upto)).map(|(a, upto)| (done.get(&a).copied().unwrap_or(0), a, upto)).map(|(at, a, upto)| (a, (at, upto))).collect())
+    }
+
+    /// Stored logs of `[from, to]` in chain order, each once. `only` is an SQL condition that
+    /// narrows them (`registry_events()`), or empty.
+    pub(crate) async fn logs(&self, chain_id: u32, from: u64, to: u64, only: &str) -> Result<Vec<Value>> {
+        let only = if only.is_empty() { String::new() } else { format!("AND ({only})") };
         let sql = format!(
             "SELECT block_number, toUnixTimestamp(block_time) AS t, log_index, tx_hash, address, topic0, topic1, topic2, topic3, data \
              FROM raw.logs WHERE chain_id = {chain_id} AND block_number BETWEEN {from} AND {to} {only} \
@@ -536,11 +662,13 @@ impl ClickHouse {
         self.query(&sql, String::new()).await?.lines().map(|l| Ok(serde_json::from_str(l)?)).collect()
     }
 
-    /// The last block that has stored calls at or below `upto`, and its time.
-    pub(crate) async fn last_call(&self, chain_id: u32, upto: u64) -> Result<Option<(u64, u64)>> {
+    /// The last block that has stored calls at or below `upto`, and its time. `only` is an SQL
+    /// condition that narrows the calls, or empty.
+    pub(crate) async fn last_call(&self, chain_id: u32, upto: u64, only: &str) -> Result<Option<(u64, u64)>> {
+        let only = if only.is_empty() { String::new() } else { format!("AND ({only})") };
         let sql = format!(
             "SELECT max(block_number), toUnixTimestamp(max(block_time)), count() FROM raw.calls \
-             WHERE chain_id = {chain_id} AND block_number <= {upto} FORMAT TSV"
+             WHERE chain_id = {chain_id} AND block_number <= {upto} {only} FORMAT TSV"
         );
         let text = self.query(&sql, String::new()).await?;
         let cols: Vec<u64> = text.split_whitespace().map(str::parse).collect::<Result<_, _>>()?;

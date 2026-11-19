@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use tokio::time::sleep;
 
 use crate::fetch::{ClickHouse, Rpc, env_u64};
-use crate::model::{Entity, World, decode, text};
+use crate::model::{Entity, World};
 use crate::process::{Rows, State, process_block};
 use crate::v3::{block_at, gone};
 
@@ -50,12 +50,7 @@ pub async fn run() -> Result<()> {
 async fn run_chain(chain: registry::Chain, rpc: Rpc, ch: ClickHouse, from: String, to: String) -> Result<()> {
     let (id, codec) = (chain.chain_id, Codec::new());
     // Decoding needs each Spoke's oracle and that oracle's decimals; both never change.
-    let mut world = World::new(&chain);
-    for log in ch.logs(id, chain.start_block, u64::MAX, true).await? {
-        if let Some((_, name, args)) = decode(&codec, &log) {
-            world.apply(text(&log, "address"), name, &args);
-        }
-    }
+    let mut world = ch.world(&chain, &codec, u64::MAX).await?;
     let mut state = State::load(&ch, id).await?;
     let unix = |date: &str| format!("toUnixTimestamp(toDateTime(toDate('{date}'), 'UTC'))");
     let sql = format!(

@@ -25,7 +25,7 @@ export function Pool({ chain, hub }: { chain: number; hub: string }) {
   if (assets.data && rows.length === 0) return <><h1>There is no pool here</h1><p className="muted">Nothing is deposited at this address on {chainName(chain)}. See <a href="/rates">every pool</a>.</p></>
   if (!rows.length) return <h1 className="say">Reading the pool…</h1>
 
-  const name = rows[0].hub_name as string, dep = sum(rows, 'added_usd'), bor = sum(rows, 'owed_usd')
+  const name = (rows[0].hub_name || short(hub)) as string, dep = sum(rows, 'added_usd'), bor = sum(rows, 'owed_usd')
   const kinds = KINDS.map((k) => ({ k, usd: sum(rows.filter((r) => kind(r.symbol) === k), 'added_usd') })).filter((x) => x.usd > 0).sort((a, b) => b.usd - a.usd)
   const bad = rows.filter((r) => /[1-9]/.test(String(r.deficit_ray ?? '0')))
   const top = markets[0]

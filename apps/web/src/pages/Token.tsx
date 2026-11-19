@@ -51,7 +51,7 @@ export function Token({ symbol }: { symbol: string }) {
         <Stat label="Cheapest to borrow" value={cheap ? pct(num(cheap.drawn_rate_apr)) : 'Not lent'} at={cheap}>{cheap && <Chain id={hubKey(cheap).chain} name={cheap.hub_name} href={poolPath(cheap)} />}</Stat>
       </div>
       <Card>
-        <Chart id="token" key={`${key.chain}:${key.hub}`} title={`${name} in ${pool.hub_name} on ${chainName(key.chain)}`} avg hourly ranges={RANGES}
+        <Chart id="token" key={`${key.chain}:${key.hub}`} title={`${name} in ${pool.hub_name || short(key.hub)} on ${chainName(key.chain)}`} avg hourly ranges={RANGES}
           tools={rows.length > 1 && (
             <select className="select" aria-label="Pool to chart" value={picked} onChange={(e) => setPicked(Number(e.target.value))}>
               {rows.map((r, i) => <option key={poolPath(r)} value={i}>{r.hub_name} on {chainName(hubKey(r).chain)}</option>)}

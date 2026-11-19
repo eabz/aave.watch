@@ -38,12 +38,7 @@ pub async fn run() -> Result<()> {
 async fn run_chain(chain: registry::Chain, ch: ClickHouse) -> Result<()> {
     let (id, codec) = (chain.chain_id, Codec::new());
     let mut cursor = ch.cursor(id, "core").await?.unwrap_or(chain.start_block - 1);
-    let mut world = World::new(&chain);
-    for log in ch.logs(id, chain.start_block, cursor, true).await? {
-        if let Some((_, name, args)) = decode(&codec, &log) {
-            world.apply(text(&log, "address"), name, &args);
-        }
-    }
+    let mut world = ch.world(&chain, &codec, cursor).await?;
     // A chain processed from its first block (a first run, or a reparse) starts with no prices:
     // the latest ones belong to the future of the blocks it is about to read.
     let mut state = if cursor < chain.start_block { State::default() } else { State::load(&ch, id).await? };
@@ -53,12 +48,18 @@ async fn run_chain(chain: registry::Chain, ch: ClickHouse) -> Result<()> {
     eprintln!("{}: processing from block {}", chain.name, cursor + 1);
     loop {
         let to = ch.cursor(id, "calls").await?.unwrap_or(0).min(cursor + chunk);
+        // After the cursor is read: a late contract is marked before the range that announced it
+        // is stored, and its calls before the calls cursor passes that range.
+        if late(&chain, &ch, &codec).await? {
+            world = ch.world(&chain, &codec, cursor).await?;
+            state = State::load(&ch, id).await?;
+        }
         if to <= cursor {
             sleep(idle).await;
             continue;
         }
-        let logs = ch.logs(id, cursor + 1, to, false).await?;
-        let calls = ch.calls(id, cursor + 1, to).await?;
+        let logs = ch.logs(id, cursor + 1, to, "").await?;
+        let calls = ch.calls(id, cursor + 1, to, "").await?;
         let mut blocks: BTreeMap<u64, (Vec<&Value>, Vec<&Value>)> = BTreeMap::new();
         for log in &logs {
             blocks.entry(log["block_number"].as_u64().unwrap_or(0)).or_default().0.push(log);
@@ -82,6 +83,61 @@ async fn run_chain(chain: registry::Chain, ch: ClickHouse) -> Result<()> {
     }
 }
 
+/// Decodes contracts that are late (calls.rs, `Late`) once their calls are read: every log and
+/// call of theirs from the chain's start block, through the same `process_block`, into the same
+/// tables. `Ok(false)` when nothing is late. Other contracts' registry events are replayed along,
+/// so the registry at each block is the whole chain's; prices are those of the late contracts'
+/// own oracles. For that reason a pass decodes every contract that was ever late, each up to its
+/// mark, not only the new ones: a Hub's rows are priced by its Spokes, and the two are not always
+/// marked in the same round. The rows are keyed on the block, so a later pass replaces the
+/// earlier one's rows with the same rows and adds the new ones.
+pub(crate) async fn late(chain: &registry::Chain, ch: &ClickHouse, codec: &Codec) -> Result<bool> {
+    let id = chain.chain_id;
+    if ch.pending(id, "late-calls:", "late-core:").await?.is_empty() {
+        return Ok(false);
+    }
+    let late: crate::calls::Late = ch.marks(id, "late-calls:").await?.into_iter().map(|(a, upto)| (a, (0, upto))).collect();
+    let upto = late.values().map(|(_, upto)| *upto).max().unwrap_or(0);
+    let mine = |log: &Value| late.get(text(log, "address")).is_some_and(|(_, upto)| log["block_number"].as_u64() <= Some(*upto));
+    let mut world = World::new(chain);
+    world.hubs.extend(ch.hubs(id).await?);
+    let mut state = State::default();
+    let logs = ch.logs(id, chain.start_block, upto, &crate::calls::late_logs(&late)).await?;
+    // Their calls, and the symbol and name of the tokens their Hubs list (read with the listing).
+    let listed = logs.iter().filter(|log| mine(log)).filter_map(|log| decode(codec, log)).filter(|(_, name, _)| *name == "AddAsset");
+    let targets: BTreeSet<String> = late.keys().cloned().chain(listed.map(|(_, _, args)| text(&args, "underlying").to_string())).collect();
+    let targets: Vec<String> = targets.iter().map(|t| format!("'{t}'")).collect();
+    let calls = ch.calls(id, chain.start_block, upto, &format!("target IN ({})", targets.join(","))).await?;
+    let mut blocks: BTreeMap<u64, (Vec<&Value>, Vec<&Value>)> = BTreeMap::new();
+    for log in &logs {
+        blocks.entry(log["block_number"].as_u64().unwrap_or(0)).or_default().0.push(log);
+    }
+    for call in &calls {
+        blocks.entry(call["block_number"].as_u64().unwrap_or(0)).or_default().1.push(call);
+    }
+    let (mut out, mut written) = (Rows::default(), 0);
+    for (block, (logs, calls)) in blocks {
+        let (logs, others): (Vec<&Value>, Vec<&Value>) = logs.into_iter().partition(|log| mine(log));
+        for log in others {
+            if let Some((_, name, args)) = decode(codec, log) {
+                world.apply(text(log, "address"), name, &args);
+            }
+        }
+        if !logs.is_empty() || !calls.is_empty() {
+            process_block(codec, &mut world, &mut state, id, block, &logs, &calls, &mut out);
+        }
+        if out.0.values().map(Vec::len).sum::<usize>() >= 50_000 {
+            written += out.flush(ch, &late).await?;
+        }
+    }
+    written += out.flush(ch, &late).await?;
+    let done: Vec<Value> =
+        late.iter().map(|(a, (_, upto))| json!({"chain_id": id, "stream": format!("late-core:{a}"), "block_number": upto, "block_hash": ""})).collect();
+    ch.insert("meta.cursor", &done).await?;
+    eprintln!("{}: {} late contracts decoded up to block {upto}, {written} rows written", chain.name, late.len());
+    Ok(true)
+}
+
 /// Rows to insert, by table.
 #[derive(Default)]
 pub struct Rows(pub BTreeMap<&'static str, Vec<Value>>);
@@ -89,6 +145,21 @@ pub struct Rows(pub BTreeMap<&'static str, Vec<Value>>);
 impl Rows {
     fn push(&mut self, table: &'static str, row: Value) {
         self.0.entry(table).or_default().push(row);
+    }
+
+    /// Writes the rows of a late pass and empties `self`. The price of a Hub asset is the median
+    /// over its Spokes, and a late pass knows only the late Spokes' prices: it writes that price
+    /// for late Hubs and leaves every other Hub's alone.
+    async fn flush(&mut self, ch: &ClickHouse, late: &crate::calls::Late) -> Result<usize> {
+        let mut written = 0;
+        for (table, mut rows) in std::mem::take(&mut self.0) {
+            if table == "core.asset_prices" {
+                rows.retain(|row| late.contains_key(text(row, "hub")));
+            }
+            ch.insert(table, &rows).await?;
+            written += rows.len();
+        }
+        Ok(written)
     }
 }
 
@@ -430,10 +501,12 @@ pub fn process_block(
 
 impl ClickHouse {
     /// Stored answers of `[from, to]` in block order, each once. Reverted calls are left out.
-    async fn calls(&self, chain_id: u32, from: u64, to: u64) -> Result<Vec<Value>> {
+    /// `only` is an SQL condition that narrows them, or empty.
+    async fn calls(&self, chain_id: u32, from: u64, to: u64, only: &str) -> Result<Vec<Value>> {
+        let only = if only.is_empty() { String::new() } else { format!("AND ({only})") };
         let sql = format!(
             "SELECT block_number, toUnixTimestamp(block_time) AS t, target, selector, args, result, reason \
-             FROM raw.calls WHERE chain_id = {chain_id} AND block_number BETWEEN {from} AND {to} AND ok = 1 \
+             FROM raw.calls WHERE chain_id = {chain_id} AND block_number BETWEEN {from} AND {to} AND ok = 1 {only} \
              ORDER BY block_number LIMIT 1 BY block_number, target, selector, args FORMAT JSONEachRow"
         );
         self.query(&sql, String::new()).await?.lines().map(|l| Ok(serde_json::from_str(l)?)).collect()

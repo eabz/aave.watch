@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use tokio::time::sleep;
 
 use crate::fetch::ClickHouse;
-use crate::model::{World, decode, text};
+use crate::model::text;
 use crate::process::{Rows, State, process_block};
 use crate::tip::xadd;
 
@@ -39,12 +39,7 @@ async fn session(chain: &registry::Chain, ch: &ClickHouse, db: &mut ConnectionMa
     while !db.exists::<_, bool>(&stream).await? {
         sleep(Duration::from_secs(15)).await;
     }
-    let mut world = World::new(chain);
-    for log in ch.logs(id, chain.start_block, u64::MAX, true).await? {
-        if let Some((_, name, args)) = decode(&codec, &log) {
-            world.apply(text(&log, "address"), name, &args);
-        }
-    }
+    let mut world = ch.world(chain, &codec, u64::MAX).await?;
     let mut state = State::load(ch, id).await?;
     let mut settled = 0;
     let mut out = Rows::default();
@@ -90,6 +85,14 @@ async fn session(chain: &registry::Chain, ch: &ClickHouse, db: &mut ConnectionMa
                 xadd(db, &keys::chain(id), &json!({"v": keys::ENVELOPE_VERSION, "chain_id": id, "block": batch["from_block"], "type": "reorg", "from_block": batch["from_block"]})).await?;
                 continue;
             }
+            if batch["type"] == "registry" {
+                // Contracts were decoded behind the cursor (process.rs, `late`): start again from
+                // settled state, which now has them.
+                let _: () = db.set(keys::tip_cursor(id), &at).await?;
+                return Ok(());
+            }
+            // A Hub the tip admitted in this batch: its AddAsset logs are in the batch.
+            world.hubs.extend(batch["hubs"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string));
             let head = &batch["head"];
             let Some(number) = head["number"].as_u64() else { continue };
             let empty = Vec::new();

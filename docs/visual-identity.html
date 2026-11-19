@@ -245,7 +245,7 @@ a.name:hover { text-decoration: underline; text-decoration-color: var(--accent-s
     <span class="caption">body 15</span><span>Wallets that get liquidated if prices move a little against them.</span>
     <span class="caption">strong 15</span><span class="strong">$788K of USDG</span>
     <span class="caption">small 14</span><span class="small">From 90% lent out, taking money out can be slow.</span>
-    <span class="caption">caption 13</span><span class="caption">Live · read 19 Nov 2026, 01:50 UTC</span>
+    <span class="caption">caption 13</span><span class="caption">Deposits, with the change over 7 days.</span>
     <span class="caption">pill 12</span><span><span class="pill">▼ 1.92 pts</span></span>
     <span class="caption">mono 13</span><span class="mono">0x1b36…1cd6</span>
   </div>
@@ -306,11 +306,11 @@ a.name:hover { text-decoration: underline; text-decoration-color: var(--accent-s
 
 <section id="header">
   <h2>Header and search</h2>
-  <p>The logo, three menu items and one search box. Search finds tokens, pools, markets and wallets, in that order.</p>
+  <p>The logo, three menu items, one search box and the day and night button. Search finds tokens, pools, markets and wallets, in that order.</p>
   <div class="card">
     <div class="bar"><span class="logo logo--s"><svg width="26" height="26" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="14" fill="var(--accent)"/><polyline points="11,17 18,32 24,21 30,32 37,15" fill="none" stroke="var(--on-fill)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>aave.watch</span>
       <nav class="menu" aria-label="Main"><a href="#header" aria-current="page">Now</a><a href="#header">Rates</a><a href="#header">Close calls</a></nav>
-      <label class="search"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25"/><path d="M10.2 10.2 14 14"/></svg><input id="search-demo" type="search" placeholder="Search a token, pool, market or address" aria-label="Search a token, pool, market or address"><kbd>/</kbd></label></div>
+      <label class="search"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25"/><path d="M10.2 10.2 14 14"/></svg><input id="search-demo" type="search" placeholder="Search a token, pool, market or address" aria-label="Search a token, pool, market or address"><kbd>/</kbd></label><button class="btn" type="button" aria-label="Switch to night" style="width:32px;padding:0;justify-content:center"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3 5.5 5.5 0 1 0 13 9.5Z"/></svg></button></div>
     <div class="results" role="listbox" aria-label="Results">
       <h3>Tokens</h3>
       <div class="row" role="option" aria-selected="true"><span class="tk"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGcgZmlsbD0ibm9uZSI+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iMTYiIGZpbGw9IiMyNzc1QzkiLz48cGF0aCBmaWxsPSIjRkZGIiBkPSJNMTUuNzUgMjcuNUExMS43NSAxMS43NSAwIDEgMSAyNy41IDE1Ljc1IDExLjc1IDExLjc1IDAgMCAxIDE1Ljc1IDI3LjV6bS0uNy0xNi4xMWEyLjU4IDIuNTggMCAwIDAtMi40NSAyLjQ3YzAgMS4yMS43NCAyIDIuMzEgMi4zM2wxLjEuMjZjMS4wNy4yNSAxLjUxLjYxIDEuNTEgMS4yMnMtLjc3IDEuMjEtMS43NyAxLjIxYTEuOSAxLjkgMCAwIDEtMS44LS45MS42OC42OCAwIDAgMC0uNjEtLjM5aC0uNTlhLjM1LjM1IDAgMCAwLS4yOC40MSAyLjczIDIuNzMgMCAwIDAgMi42MSAyLjA4di44NGEuNy43IDAgMCAwIDEuNDEgMHYtLjg1YTIuNjIgMi42MiAwIDAgMCAyLjU5LTIuNThjMC0xLjI3LS43My0yLTIuNDYtMi4zN2wtMS0uMjJjLTEtLjI1LTEuNDctLjU4LTEuNDctMS4xNCAwLS41Ni42LTEuMTggMS42LTEuMThhMS42NCAxLjY0IDAgMCAxIDEuNTkuODEuOC44IDAgMCAwIC43Mi40NmguNDdhLjQyLjQyIDAgMCAwIC4zMS0uNSAyLjY1IDIuNjUgMCAwIDAtMi4zOC0ydi0uNjlhLjcuNyAwIDAgMC0xLjQxIDB2Ljc0em0tOC4xMSA0LjM2YTguNzkgOC43OSAwIDAgMCA2IDguMzNoLjE0YS40NS40NSAwIDAgMCAuNDUtLjQ1di0uMjFhLjk0Ljk0IDAgMCAwLS41OC0uODcgNy4zNiA3LjM2IDAgMCAxIDAtMTMuNjUuOTMuOTMgMCAwIDAgLjU4LS44NnYtLjIzYS40Mi40MiAwIDAgMC0uNTYtLjQgOC43OSA4Ljc5IDAgMCAwLTYuMDMgOC4zNHptMTcuNjIgMGE4Ljc5IDguNzkgMCAwIDAtNi04LjMyaC0uMTVhLjQ3LjQ3IDAgMCAwLS40Ny40N3YuMTVhMSAxIDAgMCAwIC42MS45IDcuMzYgNy4zNiAwIDAgMSAwIDEzLjY0IDEgMSAwIDAgMC0uNi44OXYuMTdhLjQ3LjQ3IDAgMCAwIC42Mi40NCA4Ljc5IDguNzkgMCAwIDAgNS45OS04LjM0eiIvPjwvZz48L3N2Zz4K" alt="">USDC</span><span class="pills"><span class="pill c-blue">Dollar</span><span class="caption">$238.9M deposited</span></span></div>
@@ -498,13 +498,12 @@ a.name:hover { text-decoration: underline; text-decoration-color: var(--accent-s
 
 <section id="footer-part">
   <h2>Footer</h2>
-  <p>On every page: the reading stamp with the Show blocks switch, the not-affiliated line, and the theme switch. The footer below is the real one.</p>
+  <p>On every page: the not-affiliated line and the Show blocks switch. The day and night button sits in the header, at the right of the search box. The footer below is the real one.</p>
 </section>
 
 <footer class="foot">
-  <span>Live · read 19 Nov 2026, 01:50 UTC · <a href="#states">Show blocks</a></span>
   <span>aave.watch is an independent project. Not affiliated with Aave Labs or the Aave DAO.</span>
-  <span class="pills" style="margin-top:8px"><span class="seg" role="group" aria-label="Theme"><button type="button" data-theme-set="" aria-pressed="true">System</button><button type="button" data-theme-set="light" aria-pressed="false"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.75"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>&nbsp;Day</button><button type="button" data-theme-set="dark" aria-pressed="false"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3 5.5 5.5 0 1 0 13 9.5Z"/></svg>&nbsp;Night</button></span></span>
+  <span><button class="btn" type="button">Show blocks</button></span>
 </footer>
 </main>
 

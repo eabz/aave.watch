@@ -36,7 +36,7 @@ crates/
   protocol/     deployed ABIs (abi/*.json), Dragonfly key names, shared row and message types
   indexer/      binary, two processes: `fetch` (node -> raw) and `process` (raw -> core, tip)
   api/          binary: HTTP + SSE over ClickHouse and Dragonfly
-registry/       chains and Hubs (chains.toml), Spokes with kind and name (spokes.toml), Aave v3 markets (v3.toml)
+registry/       chains and seed Hubs (chains.toml), seed Spokes with kind and name (spokes.toml), Aave v3 markets (v3.toml)
 infra/
   clickhouse/   numbered .sql migrations and migrate.sh
   dragonfly/    dragonfly.conf
@@ -64,6 +64,11 @@ The stages, the ClickHouse schema and the Dragonfly keys are specified in
   parallel ranges, then switches by itself to one WebSocket per chain. `indexer process` parses and
   enriches what the fetcher stored and never holds an RPC URL. The fetcher speaks plain JSON-RPC (`reqwest`) and stores hex as returned; `alloy` for ABI decoding,
   `clickhouse` and `redis` crates. The fetcher owns every schedule; there is no external cron.
+  Hubs and Spokes are not a fixed list: `registry/*.toml` is a seed, `meta.hubs` and `meta.spokes`
+  are the list, and the fetcher adds to them what it finds on chain
+  ([Hub discovery](data-pipeline.md#hub-discovery)). For that the fetcher makes its one request
+  that is not to a node: Aave's app API, every ten minutes, for names and for whether Aave lists a
+  new Hub. Nothing stops when it fails.
 - **ClickHouse** holds settled history in three databases: `raw` (what nodes returned), `core`
   (parsed and enriched facts, latest-state tables, rollups) and `meta` (registry, tokens, cursor).
   `core` can be rebuilt from `raw` without a node.
@@ -198,6 +203,11 @@ no RPC URL.
 `aave-watch-indexer daily` is a one-off command, not a unit: it backfills one account reading a day
 for the wallet history charts and needs the fetcher's environment. How to run it:
 [data-pipeline.md](data-pipeline.md#wallet-history).
+
+`aave-watch-indexer backfill-hubs` is the other one-off command: it syncs the Hubs created before
+the fetcher could find them, in its own process (a transient unit, `aave-watch-backfill-hubs`), with
+the fetcher's environment. Run on 2026-11-19. How to run it:
+[data-pipeline.md](data-pipeline.md#hub-discovery).
 
 `cloudflared` 2026.11.1 is installed from Cloudflare's apt repo (`pkg.cloudflare.com`) and runs as the
 systemd unit `cloudflared`, connected as the tunnel `aave-watch-box`. It makes outbound connections

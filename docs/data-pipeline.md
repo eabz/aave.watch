@@ -21,11 +21,12 @@ around it, [dashboard-data.md](dashboard-data.md) the numbers that come out.
 ## Chains
 
 Aave v4 is live on four chains. Each is an entry in [registry/chains.toml](../registry/chains.toml),
-not code: chain id, block time, the seed Hubs with their first block, and `settle_tag`.
+not code: chain id, block time, the seed Hubs with their first block, and `settle_tag`. The seed is
+not the list of Hubs: the fetcher finds new ones by itself ([Hub discovery](#hub-discovery)).
 
 | Chain | Id | Block time | Hubs | Spokes found | `settle_tag` | Behind the head |
 |---|---|---|---|---|---|---|
-| Ethereum | 1 | 12s | Core, Plus, Prime, Global Dollar | 55 | `finalized` | about 65 blocks, 13 min |
+| Ethereum | 1 | 12s | Core, Plus, Prime, Global Dollar; found: Sentora and one with no name | 59 | `finalized` | about 65 blocks, 13 min |
 | Base | 8453 | 2s | Equities | 3 | `safe` | about 350 blocks, 12 min |
 | Avalanche | 43114 | 1 to 2s | Core | 12 | `finalized` | about 7 blocks, seconds |
 | Arc | 5042 | 0.5s | Core | 8 | `finalized` | 0 blocks |
@@ -124,6 +125,84 @@ costs nothing.
 
 State calls are made at the blocks the scheduler rules below select, as the range is walked.
 
+### Hub discovery
+
+The Hub list is not static either. The Hubs in `registry/chains.toml` are a seed: they are watched
+from the first block at no extra request and carry their names. **`meta.hubs` is the list**: the
+seed (`load-registry`) plus every Hub admitted since. Every stage builds its registry from it
+(`ClickHouse::world` in `fetch.rs`: the seed in the binary, `meta.hubs`, then the stored events),
+and the API reads the same table, so a Hub that is admitted flows through logs, calls, the
+processor, the latest tables, the rollups, the tip and the API with no further step.
+
+- **Announcement.** A Hub announces itself: it emits `AddAsset(assetId, underlying, decimals)`.
+  For every range it walks, the fetcher sends a second `eth_getLogs` with that topic and no
+  address. An emitter that is not in `meta.hubs` is a candidate. The tip does the same on every
+  poll, so a new Hub is seen in the poll that holds its first `AddAsset`.
+- **Admission** (`admission` in `hubs.rs`, the one place the rule lives). Anyone can deploy the
+  open-source Hub, so a candidate is synced only if
+  1. its `authority()` is the authority of a Hub already synced on that chain, or
+  2. Aave's app API lists its address as a Hub
+     (`POST https://api.aave.com/internal/v4/graphql`, query `hubs` and `spokes` by chain id:
+     `name address chain{chainId}`; the request carries that query and nothing else).
+
+  `HUB_ADMIT=all` in the fetcher's environment admits every candidate; anything else is the rule
+  above. The authority of a Hub admitted by rule 2 counts for rule 1 from then on.
+  `shortcut: authority() is the candidate's own answer, so a contract written to imitate a Hub can claim Aave's access manager and be admitted; compare its implementation code with a synced Hub's before the site is a target worth that effort.`
+- **Every decision is recorded** in `meta.hub_candidates` (`chain_id, address, first_block,
+  authority, admitted, reason`) and logged once, when it is made or when it changes. A candidate
+  that is not admitted is not synced and is in no table the API reads. Every ten minutes the
+  fetcher looks at those again (Aave may list a Hub after it is created). The API not answering
+  admits nothing and removes nothing.
+- **An admitted Hub** gets a row in `meta.hubs`: its name from Aave's API when listed, else empty
+  (a name is never made up), `first_block` the block of its first `AddAsset`. The walk does not
+  store the range that holds that `AddAsset`: it fetches the Hub's logs from the chain's
+  `start_block` up to the cursor (the proxy is deployed before it lists an asset), adds it to the
+  watch list and walks the range again. So the Hub is complete from its first block, and its
+  Spokes follow through [Spoke discovery](#spoke-discovery).
+- **Late contracts.** Logs fetched "up to the cursor" for a contract found late (a Hub's
+  deployment, a Spoke configured before its Hub announced it, a Hub admitted on a second look)
+  land behind the `calls` and `core` cursors. They are not lost: the fetcher marks the contract in
+  `meta.cursor` (`late:{address}`, the block its logs are stored up to); the calls stage then plans
+  and reads the views those logs call for, with the same `plan` as its walk (`late-calls:{address}`),
+  and the processor decodes the logs and calls of every late contract from the start block with
+  the same `process_block` (`late-core:{address}`). Each mark is written before the cursor of its stage
+  passes the range that announced the contract, and each stage rebuilds its registry after a late
+  pass; the tip rebuilds its own when a `late-core` mark changes and tells the processor's tip
+  (`registry` on `raw:{chain_id}`). Rows are keyed on the block, so a late pass and the walk
+  writing the same block is harmless.
+- **Names and Spoke rows.** The same ten-minute task (`refresh` in `hubs.rs`) gives every Spoke a
+  synced Hub announced a row in `meta.spokes` (kind from the Spoke's own events, name empty) and
+  fills the empty names of `meta.hubs` and `meta.spokes` from Aave's API. A name that is set is
+  never changed, so the names of `registry/*.toml` win. When the API does not answer nothing
+  changes; it is logged once per streak of failures.
+- **Hubs created before this existed** are synced by the same code, in two ways. The fetcher, on
+  start, scans the blocks no walk has scanned (cursor `hubscan`; from `start_block` the first
+  time), admits what it finds and fetches their logs as late contracts. And
+  `aave-watch-indexer backfill-hubs [chain_id [upto_block]]` does the whole of it in its own
+  process, without a restart of anything: the scan, the logs of the admitted Hubs and of what they
+  announce, their calls, their rows, their names. It needs the fetcher's environment
+  (`systemd-run --unit aave-watch-backfill-hubs --property=EnvironmentFile=/etc/aave-watch/fetch.env
+  /usr/local/bin/aave-watch-indexer backfill-hubs`) and goes up to the `core` cursor, behind which
+  the running stages read nothing again. Every step is marked, so it can be stopped and run again;
+  with nothing to do it ends in seconds. It does not go on watching: the Hubs' blocks after it are
+  fetched by the fetcher's next start (it must be a binary that has Hub discovery). Run
+  `infra/clickhouse/rollup_backfill.sh` after it.
+- **Run on 2026-11-19**, all four chains from their `start_block`: nine contracts on Ethereum had
+  emitted `AddAsset`, none but the seed on Base, Avalanche and Arc. Admitted: Sentora
+  `0xd138fcb0e8c52fdbb2ac4573fa4d8925cf11e9c2` (listed by Aave; 8 assets, 4 Spokes) and
+  `0xad0fd800cbaf41a4ced1bea3a4f90aa18cfbc49d` (the authority of Core; 5 assets, only the Treasury
+  Spoke, nothing supplied, no name). Not admitted: `0xc2349a62…`, `0xd873d9ff…`, `0xb56a21be…`.
+  Sentora at block 26,446,298: 156.55M USD supplied and 60.14M borrowed, against 156.57M and
+  60.14M from Aave's API minutes later.
+- **How a backfilled Hub differs from a seeded one.** Events, state at event blocks and hourly,
+  prices and per-user reads at event blocks are the same reads, planned by the same code. Three
+  things differ: the hourly reads fall on the blocks of the Hub's own quiet hours, not on the
+  chain-wide ones; `latestRoundData` (price source update time) is not read for the backfilled
+  blocks; and its accounts have no `daily` readings ([Wallet history](#wallet-history)), so a
+  wallet's chart on its Spokes moves at events only until the tier readings begin with the
+  fetcher's next start. A Hub asset's price is the median over the late Spokes only; an already
+  synced Spoke that lists a reserve on the late Hub is not in that median for the backfilled blocks.
+
 ### Spoke discovery
 
 The Spoke list is not static. `registry/spokes.toml` is a seed: it saves requests and carries the
@@ -133,8 +212,13 @@ names and kinds, but the fetcher does not depend on it.
   that is not watched, that range is not stored. The fetcher reads the Spoke's `ORACLE()`, fetches
   the logs of both addresses from the chain's `start_block` up to the cursor (a Spoke is deployed
   and configured before a Hub announces it), adds them to the watch list and walks the range again.
-- On start the watch list is the Hubs, the seed, and every Spoke named by an `AddSpoke` log already
-  in `raw.logs`. Nothing else is persisted.
+  Those earlier logs are behind the cursors: they reach `raw.calls` and `core` as a late contract
+  (see [Hub discovery](#hub-discovery)).
+- On start the watch list is the Hubs (`meta.hubs`), the seed, and every contract named by the
+  events already in `raw.logs`. A contract outside the seed whose logs were stored by another
+  process (the backfill) has no `watch:` mark: its logs since then are fetched before the walk
+  goes on.
+- A discovered Spoke gets its `meta.spokes` row from the ten-minute task, so `/v1/spokes` lists it.
 - Checked 2026-11-18 on Arc: a run with the seed ignored (`FETCH_NO_SEED=1`) found all 8 Spokes
   and stored the same 56,683 logs, by checksum, as the seeded run.
 
@@ -198,10 +282,11 @@ the stream's retention it goes back to ClickHouse the same way.
 
 | Piece | Code | What it does |
 |---|---|---|
-| Logs, settled | `fetch.rs` | `catching_up` for logs with Spoke discovery; keeps walking as the settle tag advances |
-| Calls, settled | `calls.rs` | walks from the `calls` cursor to the `raw` cursor over the stored logs, plans the views of each block (`model.rs`) and stores one multicall per block in `raw.calls` |
+| Logs, settled | `fetch.rs` | `catching_up` for logs with Hub and Spoke discovery; keeps walking as the settle tag advances |
+| Hub discovery | `hubs.rs`, `0012_hub_candidates.sql` | the admission rule, `meta.hubs` and `meta.hub_candidates`, the ten-minute task (names, Spoke rows, candidates again), and `indexer backfill-hubs`, run once on 2026-11-19; see [Hub discovery](#hub-discovery) |
+| Calls, settled | `calls.rs` | walks from the `calls` cursor to the `raw` cursor over the stored logs, plans the views of each block (`model.rs`) and stores one multicall per block in `raw.calls`; `late` does the same for contracts found behind the cursor |
 | Tip | `tip.rs` | `live`: follows the head and appends unsettled batches to `raw:{chain_id}`; owns the health factor tiers (`due:{chain_id}`) |
-| Processor, settled | `process.rs` | `raw.*` to `core.*` and `meta.assets`, `meta.reserves`, `meta.tokens`, from the `core` cursor to the `calls` cursor |
+| Processor, settled | `process.rs` | `raw.*` to `core.*` and `meta.assets`, `meta.reserves`, `meta.tokens`, from the `core` cursor to the `calls` cursor; `late` decodes contracts found behind the cursor |
 | Aave v3 totals | `v3.rs` | hourly supplied and borrowed of every v3 market on 21 chains, into `raw.v3_calls`; see [Aave v3 totals](#aave-v3-totals) |
 | Wallet history | `daily.rs`, `0011_user_account_hourly.sql` | `indexer daily`, run once: one reading a day of every open account for the days before the tier readings; `core.user_account_hourly` for the charts; see [Wallet history](#wallet-history) |
 | Processor, tip | `live.rs` | `raw:{chain_id}` to the latest-state keys, the rankings and the `feed`, `state`, `risk`, `chain` streams |
@@ -210,6 +295,12 @@ Where the code is simpler than the design above, on purpose:
 
 - `shortcut: three cursors, not two.` Calls were added after the logs were backfilled, so they
   have their own cursor (`calls`). "Complete up to here" for the processor is the `calls` cursor.
+- `shortcut: a late pass decodes with the prices of the late contracts only, and always from the start block.`
+  Right while late contracts are a new Hub with its own Spokes, or one Spoke; give it the
+  chain's prices if an old Spoke's reserve on a late Hub ever matters.
+- The tip learns a Spoke that was configured before its Hub announced it only once that Spoke is
+  settled and decoded (a late pass), about the chain's settle lag after the `AddSpoke`. Until then
+  the Spoke's unsettled events are in the feed without reads of its reserves.
 - `shortcut: the head is polled over HTTP every TIP_INTERVAL_MS (3s, or the block time if longer), not pushed over a WebSocket.`
   Logs of the blocks since the last poll come from one `eth_getLogs`; state is read once per poll,
   at the head, so an event is priced with a reading up to one interval old. Move to
@@ -244,6 +335,7 @@ What a node is asked for, so the cost can be counted in one place:
 | Request | `catching_up` | `live` |
 |---|---|---|
 | Logs | one `eth_getLogs` per range, all addresses | none: pushed by the `logs` subscription |
+| Hub candidates | one `eth_getLogs` per range, the `AddAsset` topic and no address | one per poll, the same filter |
 | Headers | none if the node returns `blockTimestamp` on logs (Ethereum, Base and Arc on QuickNode do; Avalanche does not); else one batched `eth_getBlockByNumber` for blocks that have rows | none: pushed by `newHeads` |
 | State | one multicall `eth_call` per block that had an event, plus the hourly heartbeat | at most one multicall `eth_call` per block |
 | Settled tag | one read per round | one read per interval |
@@ -408,13 +500,15 @@ Each Spoke has one `AaveOracle`. Each reserve has a source that answers `latestA
 | Data | Source | Stored in |
 |---|---|---|
 | `symbol`, `name`, `decimals` | the token contract, one multicall when first seen | `meta.tokens` |
-| Hub, Spoke display names | not on chain (a Hub has no name field) | `registry/chains.toml` (Hubs, done); a Spoke names file there, to add |
+| Hub, Spoke display names | not on chain (a Hub has no name field) | `registry/chains.toml` and `registry/spokes.toml` for the seed; for a discovered Hub or Spoke, the name Aave's API gives it, filled into `meta.hubs` / `meta.spokes` every ten minutes; empty until then |
 | Logo | not on chain | `apps/web/public/tokens/{chain_id}/{address}.svg` in this repo, served by the Worker |
 | Canonical asset (USDC on four chains is one asset) | our mapping | `registry/assets.toml` |
 | Address labels (liquidators, treasuries) | our list | `registry/labels.toml` |
 
 Logos and names are files we keep, loaded into ClickHouse at start-up. That is curation, not a
-runtime dependency: no request leaves the server to render a page. A token with no entry shows its
+runtime dependency: no request leaves the server to render a page. The one request that does leave
+is the fetcher's, every ten minutes, to Aave's API for names and for the admission of new Hubs
+([Hub discovery](#hub-discovery)); no number comes from it, and when it fails nothing changes. A token with no entry shows its
 on-chain symbol and a generic mark. `symbol()` that returns `bytes32` is handled at decode.
 
 ## ClickHouse
@@ -562,13 +656,14 @@ Two plain views compute at read time (`0009_derived.sql`): `core.liquidations`, 
 | Table | Key | Content |
 |---|---|---|
 | `chains` | `chain_id` | name, block time, settle tag, explorer URL |
-| `hubs`, `spokes` | `chain_id, address` | name, kind (spoke, treasury, tokenization, babylon), first block, oracle |
+| `hubs`, `spokes` | `chain_id, address` | name, kind (spoke, treasury, tokenization, babylon), first block, oracle. The list of what is synced: the seed plus what was discovered. A discovered Hub's first block is that of its first `AddAsset`; a discovered Spoke's is 0, like the seed's |
+| `hub_candidates` | `chain_id, address` | every contract outside the seed seen to emit `AddAsset`: first block, `authority()`, `admitted`, the reason. Not read by the API |
 | `assets` | `chain_id, hub, asset_id` | underlying token, decimals, first block |
 | `reserves` | `chain_id, spoke, reserve_id` | hub, asset_id, token, first block |
 | `tokens` | `chain_id, address` | symbol, name, decimals, canonical asset, logo path |
 | `price_sources` | `chain_id, spoke, reserve_id` | feed address, feed kind, decimals, since block |
 | `labels` | `chain_id, address` | label, category |
-| `cursor` | `chain_id, stream` | last complete settled block and hash. Three streams: `raw` (fetcher, logs), `calls` (fetcher, view calls) and `core` (processor). Also the "done" marks `watch:{address}` (Spoke discovery) and `daily:{unix time}` (wallet history) |
+| `cursor` | `chain_id, stream` | last complete settled block and hash. Three streams: `raw` (fetcher, logs), `calls` (fetcher, view calls) and `core` (processor). Also `hubscan` (blocks searched for Hub candidates) and the "done" marks `watch:{address}` (the walk has this contract), `late:{address}`, `late-calls:{address}`, `late-core:{address}` (a contract found behind the cursor: logs, calls and rows done up to that block; see Hub discovery) and `daily:{unix time}` (wallet history) |
 | `parser_runs` | `chain_id, parser_version, range` | when a reparse ran and over what |
 
 All `ReplacingMergeTree`. `tokens`, `hubs`, `spokes`, `reserves` and `labels` are also exposed as
@@ -617,7 +712,7 @@ whole. Names are defined once, in `crates/protocol/src/keys.rs`.
 | `state:{chain_id}` | one changed state row: hub asset, hub × spoke, reserve, price | 1 hour |
 | `risk:{chain_id}` | a position crossing a health band, or a liquidation | 1 hour |
 | `chain:{chain_id}` | `head`, `settled`, `reorg` | 1 hour |
-| `raw:{chain_id}` | one batch of unsettled blocks as fetched: the head's header, the logs since the last batch, the call results at the head. Written by the fetcher, read by the processor (its place is `tipcursor:{chain_id}`), not relayed to browsers | 1 hour |
+| `raw:{chain_id}` | one batch of unsettled blocks as fetched: the head's header, the logs since the last batch, the call results at the head, and `hubs`, the Hubs admitted in this batch. Also `registry`: contracts were decoded behind the cursor, start again from settled state. Written by the fetcher, read by the processor (its place is `tipcursor:{chain_id}`), not relayed to browsers | 1 hour |
 
 Every entry is one JSON field with the same envelope:
 
@@ -693,6 +788,7 @@ Worker; D1 is the smaller step, since those reads come from the edge anyway.
 | Addition | What it needs | New backfill? |
 |---|---|---|
 | A new chain | a config entry and its registry files | that chain only |
+| A new Hub | nothing: found at its first `AddAsset` and admitted by rule; a name once Aave's API has one, or a seed entry | no |
 | A new event or a renamed field | parser change, `reparse` | no |
 | A new derived metric | a rollup or a column, `reparse` | no |
 | A new view call | scheduler rule, parser | yes, calls only, from an archive node |
@@ -703,7 +799,7 @@ Worker; D1 is the smaller step, since those reads come from the edge anyway.
 | Alerts | a consumer of `risk:{chain_id}` and `state:{chain_id}` | no |
 | User accounts, saved views | D1 or Postgres (above) | no |
 
-To make the "no" answers true, the watch list for `raw.logs` from day one is every Hub, every Spoke
+To make the "no" answers true, the watch list for `raw.logs` from day one is every admitted Hub, every Spoke
 of every kind, every Spoke's `AaveOracle`, every interest rate strategy and the access manager, with
 every log kept, including events the parser does not know yet. Oracles are in
 `registry/spokes.toml`; strategies and the access manager are read from the Hubs (`getAssetConfig`,

@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from 'react'
 import type { Row } from './api.ts'
 import { limitUse } from './caps.ts'
-import { distance, pct, usd } from './format.ts'
+import { distance, pct, short, usd } from './format.ts'
 import { useSort } from './hooks.ts'
 import { away, hubKey, marketPath, num, poolPath } from './lib.ts'
 import { BandPill, Chain, SortTh, Token, Used, Wallet } from './ui.tsx'
@@ -18,7 +18,7 @@ export function AssetTable({ rows, first = 'asset', pool = true, step = 25 }: { 
     name: (r) => String(first === 'asset' ? r.symbol : r.hub_name).toLowerCase(), dep: (r) => num(r.added_usd), earn: (r) => num(r.supply_apy_7d),
     rate: (r) => num(r.drawn_rate_apr), bor: (r) => num(r.owed_usd), pool: (r) => String(r.hub_name).toLowerCase(), used: (r) => num(r.usage),
   }, { key: 'dep', dir: 'descending' })
-  const name = (r: Row) => <Chain id={hubKey(r).chain} name={r.hub_name} href={poolPath(r)} />
+  const name = (r: Row) => <Chain id={hubKey(r).chain} name={r.hub_name || short(hubKey(r).hub)} href={poolPath(r)} />
   const th = { sort, toggle }
   return (
     <>

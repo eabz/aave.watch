@@ -20,6 +20,17 @@ use crate::fetch::{ClickHouse, Rpc, env_u64};
 use crate::model::{World, decode, text};
 
 
+/// Contracts whose logs were stored behind the cursors (a Hub admitted late, a Spoke configured
+/// before its Hub announced it): address -> (already done up to, logs stored up to).
+pub(crate) type Late = BTreeMap<String, (u64, u64)>;
+
+/// SQL condition for what a pass over late contracts reads: their own logs, and the registry
+/// events of every contract, so `World` knows at each block what the chain had announced.
+pub(crate) fn late_logs(late: &Late) -> String {
+    let addresses: Vec<String> = late.keys().map(|a| format!("'{a}'")).collect();
+    format!("address IN ({}) OR {}", addresses.join(","), crate::fetch::registry_events())
+}
+
 /// (target, calldata) -> why it is read. `event` wins over `heartbeat` when both ask.
 pub(crate) type Plan = BTreeMap<(String, String), Reason>;
 
@@ -36,13 +47,8 @@ pub(crate) enum Reason {
 pub async fn run_chain(chain: registry::Chain, rpc: Rpc, ch: ClickHouse, held_below: Arc<AtomicU64>) -> Result<()> {
     let (id, codec) = (chain.chain_id, Codec::new());
     let mut cursor = ch.cursor(id, "calls").await?.unwrap_or(chain.start_block - 1);
-    let mut world = World::new(&chain);
-    for log in ch.logs(id, chain.start_block, cursor, true).await? {
-        if let Some((_, name, args)) = decode(&codec, &log) {
-            world.apply(text(&log, "address"), name, &args);
-        }
-    }
-    let mut anchor = ch.last_call(id, cursor).await?;
+    let mut world = ch.world(&chain, &codec, cursor).await?;
+    let mut anchor = ch.last_call(id, cursor, "").await?;
     let idle = Duration::from_millis((chain.block_time_ms * 8).clamp(5_000, 120_000));
     // About ten hours of blocks per round: one query for logs, one insert of calls.
     let chunk = 36_000_000 / chain.block_time_ms;
@@ -52,20 +58,18 @@ pub async fn run_chain(chain: registry::Chain, rpc: Rpc, ch: ClickHouse, held_be
     );
     loop {
         let to = ch.cursor(id, "raw").await?.unwrap_or(0).min(cursor + chunk).min(held_below.load(Relaxed));
+        // After the cursor is read: the fetcher marks a late contract before it stores the range
+        // that announced it, so the marks of everything up to `to` are in by now.
+        if late(&chain, &rpc, &ch, &codec).await? {
+            world = ch.world(&chain, &codec, cursor).await?;
+        }
         if to <= cursor {
             sleep(idle).await;
             continue;
         }
-        let logs = ch.logs(id, cursor + 1, to, false).await?;
-        let plans = plan(&codec, &mut world, &mut anchor, &logs, to, chain.block_time_ms);
-        let mut read = stream::iter(plans)
-            .map(|(block, calls): (u64, Plan)| read_block(id, &rpc, &codec, block, calls))
-            .buffered(env_u64("FETCH_PARALLEL", 4) as usize);
-        let mut rows = Vec::new();
-        while let Some(block) = read.next().await {
-            rows.extend(block);
-        }
-        drop(read);
+        let logs = ch.logs(id, cursor + 1, to, "").await?;
+        let plans = plan(&codec, &mut world, &mut anchor, &logs, to, chain.block_time_ms, None);
+        let rows = read_blocks(id, &rpc, &codec, plans).await;
         ch.insert("raw.calls", &rows).await?;
         ch.insert("meta.cursor", &[json!({"chain_id": id, "stream": "calls", "block_number": to, "block_hash": ""})]).await?;
         if !rows.is_empty() {
@@ -75,8 +79,55 @@ pub async fn run_chain(chain: registry::Chain, rpc: Rpc, ch: ClickHouse, held_be
     }
 }
 
+/// The view calls of contracts that are late (see `Late`): the reads the walk above would have
+/// made for them had they been watched from their first block, planned by the same `plan` and
+/// stored in `raw.calls`. `Ok(false)` when nothing is late. Progress is marked in `meta.cursor`
+/// (`late-calls:{address}`) after every batch, so a pass that is stopped goes on from there.
+pub(crate) async fn late(chain: &registry::Chain, rpc: &Rpc, ch: &ClickHouse, codec: &Codec) -> Result<bool> {
+    let id = chain.chain_id;
+    let late = ch.pending(id, "late:", "late-calls:").await?;
+    let Some(upto) = late.values().map(|(_, upto)| *upto).max() else { return Ok(false) };
+    let mut world = World::new(chain);
+    world.hubs.extend(ch.hubs(id).await?);
+    let logs = ch.logs(id, chain.start_block, upto, &late_logs(&late)).await?;
+    // A pass that goes on after an earlier one keeps the hourly reads in step with it.
+    let (targets, done) = (late.keys().map(|a| format!("'{a}'")).collect::<Vec<_>>().join(","), late.values().map(|(done, _)| *done).max().unwrap_or(0));
+    let mut anchor = ch.last_call(id, done, &format!("target IN ({targets})")).await?;
+    let mut plans = plan(codec, &mut world, &mut anchor, &logs, upto, chain.block_time_ms, Some(&late));
+    eprintln!("{}: {} late contracts, calls to read at {} blocks up to {upto}", chain.name, late.len(), plans.len());
+    let mark = |block: u64| -> Vec<Value> {
+        let row = |(a, (_, upto)): (&String, &(u64, u64))| json!({"chain_id": id, "stream": format!("late-calls:{a}"), "block_number": block.min(*upto), "block_hash": ""});
+        late.iter().map(row).collect()
+    };
+    while let Some((&first, _)) = plans.first_key_value() {
+        let rest = plans.split_off(&plans.keys().nth(500).copied().unwrap_or(u64::MAX));
+        let batch = std::mem::replace(&mut plans, rest);
+        let last = batch.last_key_value().map_or(first, |(block, _)| *block);
+        let rows = read_blocks(id, rpc, codec, batch).await;
+        ch.insert("raw.calls", &rows).await?;
+        ch.insert("meta.cursor", &mark(last)).await?;
+        eprintln!("{}: {} late calls stored, up to block {last}", chain.name, rows.len());
+    }
+    ch.insert("meta.cursor", &mark(upto)).await?;
+    Ok(true)
+}
+
+/// Reads every block's plan, a few blocks at a time, and returns the `raw.calls` rows in order.
+async fn read_blocks(chain_id: u32, rpc: &Rpc, codec: &Codec, plans: BTreeMap<u64, Plan>) -> Vec<Value> {
+    let mut read = stream::iter(plans)
+        .map(|(block, calls): (u64, Plan)| read_block(chain_id, rpc, codec, block, calls))
+        .buffered(env_u64("FETCH_PARALLEL", 4) as usize);
+    let mut rows = Vec::new();
+    while let Some(block) = read.next().await {
+        rows.extend(block);
+    }
+    rows
+}
+
 /// Which views to read at which block, for logs in block order up to block `to`.
 /// `anchor` is the last block read and its time; it carries the hourly heartbeat across rounds.
+/// With `late`, only the late contracts are read, each for the blocks it still lacks; every
+/// other log only tells `world` what exists.
 fn plan(
     codec: &Codec,
     world: &mut World,
@@ -84,25 +135,39 @@ fn plan(
     logs: &[Value],
     to: u64,
     block_time_ms: u64,
+    late: Option<&Late>,
 ) -> BTreeMap<u64, Plan> {
     let mut plans: BTreeMap<u64, Plan> = BTreeMap::new();
+    let mine = |target: &str| late.is_none_or(|late| late.contains_key(target));
     let heartbeat = |world: &World, plan: &mut Plan| {
         let all = world.everything().into_iter().flat_map(|e| e.calls(codec));
-        for call in all.chain(world.price_calls(codec)).chain(world.source_calls(codec)) {
+        for call in all.chain(world.price_calls(codec)).chain(world.source_calls(codec)).filter(|(target, _)| mine(target)) {
             plan.entry(call).or_insert(Reason::Heartbeat);
         }
     };
-    let mut logs = logs.iter().peekable();
-    while let Some(log) = logs.next() {
+    // Prices at every block read: an event is valued at the price of its own block. Planned
+    // after the block's last log, so a reserve added in the block is priced too.
+    let prices = |world: &World, plan: Option<&mut Plan>| {
+        let Some(plan) = plan.filter(|plan| !plan.is_empty()) else { return };
+        for call in world.price_calls(codec).into_iter().filter(|(target, _)| mine(target)) {
+            plan.entry(call).or_insert(Reason::Event);
+        }
+    };
+    // The block whose logs are being planned, until a log of a later block closes it.
+    let mut open: Option<u64> = None;
+    for log in logs {
         let (Some(block), Some(time)) = (log["block_number"].as_u64(), log["t"].as_u64()) else { continue };
-        // Prices at every block read: an event is valued at the price of its own block. Planned
-        // after the block's last log, so a reserve added in the block is priced too.
-        let last_of_block = logs.peek().is_none_or(|next| next["block_number"].as_u64() != Some(block));
-        let prices = |world: &World, plan: &mut Plan| {
-            for call in world.price_calls(codec) {
-                plan.entry(call).or_insert(Reason::Event);
+        if let Some(done) = open.filter(|b| *b != block) {
+            prices(world, plans.get_mut(&done));
+            open = None;
+        }
+        if late.is_some_and(|late| late.get(text(log, "address")).is_none_or(|(done, upto)| block <= *done || block > *upto)) {
+            if let Some((_, name, args)) = decode(codec, log) {
+                world.apply(text(log, "address"), name, &args);
             }
-        };
+            continue;
+        }
+        open = Some(block);
         if anchor.is_none_or(|(b, _)| b != block) {
             // Hours with no event between the last read and this block still get their read.
             for (quiet, _) in hour_blocks(*anchor, Some((block, time)), to, block_time_ms) {
@@ -123,10 +188,8 @@ fn plan(
                 plan.insert(call, Reason::Event);
             }
         }
-        if last_of_block && !plan.is_empty() {
-            prices(world, plan);
-        }
     }
+    prices(world, open.and_then(|block| plans.get_mut(&block)));
     for (quiet, time) in hour_blocks(*anchor, None, to, block_time_ms) {
         heartbeat(world, plans.entry(quiet).or_default());
         *anchor = Some((quiet, time));
@@ -250,7 +313,7 @@ mod tests {
             log(101, 1_800_000_012, "Draw", spoke, format!("{}{}", word(5), &word(6)[2..])),
         ];
         let mut anchor = None;
-        let plans = plan(&codec, &mut world, &mut anchor, &logs, 200, 12_000);
+        let plans = plan(&codec, &mut world, &mut anchor, &logs, 200, 12_000, None);
         assert_eq!(anchor, Some((101, 1_800_000_012)));
         assert_eq!(plans.keys().copied().collect::<Vec<_>>(), [100, 101]);
         // block 100: the token's symbol and name; its heartbeat ran before anything existed
@@ -258,5 +321,27 @@ mod tests {
         // block 101: the asset (4 views) and the Spoke line (3 views), read because of the event
         assert_eq!(plans[&101].values().filter(|r| **r == Reason::Event).count(), 7);
         assert!(plans[&101].values().all(|r| *r != Reason::Heartbeat));
+
+        // A late pass over the same logs, where a second Hub is the late contract: only it is
+        // read, and only for the blocks it lacks; the first Hub's logs still build the registry.
+        let late_hub = "0xd138fcb0e8c52fdbb2ac4573fa4d8925cf11e9c2";
+        let mut logs = logs.to_vec();
+        for (block, event, topic2, data) in [(100, "AddAsset", token, word(18)), (101, "AddSpoke", spoke, "0x".to_string()), (150, "Draw", spoke, format!("{}{}", word(5), &word(6)[2..]))] {
+            let mut late_log = log(block, 1_800_000_000 + (block - 100) * 12, event, topic2, data);
+            late_log["address"] = json!(late_hub);
+            logs.push(late_log);
+        }
+        logs.sort_by_key(|l| l["block_number"].as_u64());
+        let mut world = World::new(&chain);
+        world.hubs.insert(late_hub.to_string());
+        let late: Late = [(late_hub.to_string(), (100, 150))].into();
+        let plans = plan(&codec, &mut world, &mut None, &logs, 150, 12_000, Some(&late));
+        // block 100 is done already; 101 and 150 are read, on the late Hub alone
+        assert_eq!(plans.keys().copied().collect::<Vec<_>>(), [101, 150]);
+        assert!(plans.values().flat_map(|p| p.keys()).all(|(target, _)| target == late_hub));
+        assert_eq!(plans[&150].values().filter(|r| **r == Reason::Event).count(), 7);
+        // both Hubs are in the registry: the first Hub's asset and line, and the late Hub's
+        assert_eq!((world.assets.len(), world.hub_spokes.len()), (2, 2));
+        assert!(late_logs(&late).starts_with(&format!("address IN ('{late_hub}') OR topic0 IN (")));
     }
 }

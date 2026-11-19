@@ -26,9 +26,11 @@ from the interfaces at that commit. Re-check them when the repo moves.
 
 ## Deployments
 
-Hubs on all four chains, from DefiLlama's adapter (`DefiLlama-Adapters/projects/aave-v4/index.js`).
-Each was checked on chain on 2026-11-18: it answers `getAssetCount()`. The machine-readable copy is
-[registry/chains.toml](../registry/chains.toml).
+The seed Hubs on all four chains, from DefiLlama's adapter
+(`DefiLlama-Adapters/projects/aave-v4/index.js`). Each was checked on chain on 2026-11-18: it
+answers `getAssetCount()`. The machine-readable copy is [registry/chains.toml](../registry/chains.toml).
+This table is a seed, not the list: Hubs deployed since are found on chain and listed in
+`meta.hubs` (below, "Hubs found on chain").
 
 | Chain | Hub | Address | Assets | First block |
 |---|---|---|---|---|
@@ -40,8 +42,29 @@ Each was checked on chain on 2026-11-18: it answers `getAssetCount()`. The machi
 | Avalanche (43114) | Core | `0xd07369fAE4A5BB13c9Ce446B052c7867B1AbDf6e` | 8 | 89,721,368 |
 | Arc (5042) | Core | `0x17288dfc86205301064577b98B02b81017e6F79C` | 5 | 18,791,506 |
 
+### Hubs found on chain
+
+Any contract that emits `AddAsset` announces itself as a Hub, and anyone can deploy one: the Hub is
+open source. The indexer syncs such a contract only if its `authority()` is the authority of a Hub
+it already syncs on that chain, or if Aave's app API lists it; the rule, the table of candidates
+and the backfill are in [data-pipeline.md](data-pipeline.md#hub-discovery). A scan of all four
+chains from their first v4 block on 2026-11-19 found nine emitters on Ethereum and only the seed
+Hubs elsewhere:
+
+| Hub | Address | First `AddAsset` | `authority()` | Synced |
+|---|---|---|---|---|
+| Sentora | `0xd138fcb0e8c52fdbb2ac4573fa4d8925cf11e9c2` | 26,191,476 | `0xbb8c3ef5…` (its own) | yes: Aave's API lists it. 8 assets, 3 standard Spokes (RLUSD Yield, Bluechip, OUSD Yield) and a treasury |
+| (no name) | `0xad0fd800cbaf41a4ced1bea3a4f90aa18cfbc49d` | 26,394,352 | `0x08ae3be3…`, the same as Core, Plus, Prime and Global Dollar | yes: the authority. 5 assets, only the Treasury Spoke, nothing supplied; Aave's API does not list it |
+| | `0xc2349a62d005f4b687ee4675c5cbddb0669db6f1` | 25,235,656 | `0x60a95b4c…` | no: other code than the seven Hubs, unknown owner |
+| | `0xd873d9ff3be300ee70eca729b660e374a22cd7b1` | 26,278,448 | `0x911f0d5c…` | no: the Hub's code, unknown owner |
+| | `0xb56a21bea4dc4368a95f271bca1b587d8d81a91d` | 26,278,460 | `0x911f0d5c…` | no: the Hub's code, unknown owner |
+
+The implementation code of Sentora, of the Hub with no name and of the two `0x911f0d5c…` Hubs is
+byte-identical to that of the seed Hubs (`eth_getCode` of the ERC-1967 implementation, 24,354
+bytes).
+
 Spokes are read from the Hubs (`getSpokeCount`, `getSpokeAddress` per asset), not listed by hand:
-55 on Ethereum, 3 on Base, 12 on Avalanche, 8 on Arc. Several Ethereum Spokes draw from more than
+55 on Ethereum from the seed Hubs and 4 more from Sentora, 3 on Base, 12 on Avalanche, 8 on Arc. Several Ethereum Spokes draw from more than
 one Hub; the Treasury Spoke is connected to all four.
 
 Every standard and Treasury Spoke has a published name. Names are from the Aave docs address page
@@ -140,7 +163,8 @@ Not known yet:
 - Addresses of configurators and position managers.
 - A Babylon Spoke: the code exists in the repo, none is connected to a Hub yet.
 
-The seed list above is only a start. The chain is the registry: `Hub.AddSpoke` lists every Spoke,
+The seed list above is only a start. The chain is the registry: `AddAsset` from any contract
+announces a Hub (synced if admitted, see "Hubs found on chain"), `Hub.AddSpoke` lists every Spoke,
 `Spoke.AddReserve` lists every reserve.
 
 ## Events
@@ -210,4 +234,7 @@ State is read from views, not rebuilt from events. Events tell us *when* to read
 
 Aave ships AaveKit (`@aave/client`, `@aave/react`), a GraphQL API with hubs, spokes and summary
 history. We do not depend on it: it has no event stream and we need our own data for real time. It
-is useful as a cross-check for our numbers.
+is useful as a cross-check for our numbers. Two things are taken from its API
+(`api.aave.com/internal/v4/graphql`, `hubs` and `spokes`), and both work without it: the names of
+Hubs and Spokes found on chain, and whether Aave lists a Hub (one of the two ways a new Hub is
+admitted). No number comes from it.

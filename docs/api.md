@@ -25,8 +25,8 @@ is specified in [data-pipeline.md](data-pipeline.md).
 |---|---|---|---|---|
 | `/v1/health` | | `{ clickhouse, dragonfly, heads: [{chain_id, number, settled, time}] }` | both | 0 |
 | `/v1/chains` | | chain: `chain_id, name, block_time_ms, settle_tag, explorer_url` | `meta.chains` | 300 |
-| `/v1/hubs` | `chain?` | Hub: `chain_id, address, name, first_block` | `meta.hubs` | 300 |
-| `/v1/spokes` | `chain?`, `kind?` | Spoke: `chain_id, address, name, kind, oracle, first_block` | `meta.spokes` | 300 |
+| `/v1/hubs` | `chain?` | Hub: `chain_id, address, name, first_block`. Every synced Hub, seeded or discovered; `name` is empty for a discovered Hub that Aave's API does not name | `meta.hubs` | 300 |
+| `/v1/spokes` | `chain?`, `kind?` | Spoke: `chain_id, address, name, kind, oracle, first_block`. `name` is empty for a discovered Spoke until Aave's API names it | `meta.spokes` | 300 |
 | `/v1/summary` | `chain?` | chain: `chain_id, supplied_usd, borrowed_usd, liquidity_usd, positions_below_1_1, debt_below_1_1, liquidatable, block_number, block_time` | `core.*_latest` | 15 |
 | `/v1/hub-assets` | `chain?`, `hub?` | Hub asset: the `core.hub_asset_latest` row plus `hub_name, token, symbol, decimals` and `supply_apy_1d, supply_apy_7d` (measured from the share price, a fraction; `null` when there is no reading that old) | `core.hub_asset_latest`, `core.hub_asset_apy` | 15 |
 | `/v1/hub-spokes` | `chain?`, `hub?`, `asset_id?`, `spoke?` | Spoke line on a Hub asset: the `core.hub_spoke_latest` row plus `spoke_name, spoke_kind, symbol, decimals` | `core.hub_spoke_latest` | 15 |
@@ -98,7 +98,8 @@ Environment variables of `crates/api`:
 - `aave-watch-api` serves the API.
 - `aave-watch-api load-registry` copies `registry/*.toml` into `meta.chains`, `meta.hubs` and
   `meta.spokes` and exits. Run it after a registry change; it is safe to repeat. Assets, reserves
-  and tokens are written by the indexer, not by this command.
+  and tokens are written by the indexer, not by this command, and so are the Hubs and Spokes it
+  discovers (data-pipeline.md, "Hub discovery"): the registry files are the seed of those two tables.
 - On the server it runs as the systemd unit `aave-watch-api`
   ([infra/systemd/aave-watch-api.service](../infra/systemd/aave-watch-api.service)), bound to
   `127.0.0.1:8080`, built from the repo at `/root/aave.watch` by `infra/deploy.sh`.
