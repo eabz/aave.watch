@@ -21,7 +21,7 @@
 		"directory": "../web/dist",
 		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/*", "!/assets/*", "!/icons/*", "!/fonts/*", "!/favicon.svg"]
+		"run_worker_first": ["/*", "!/assets/*", "!/icons/*", "!/fonts/*", "!/favicon.svg", "!/robots.txt"]
 	},
 	// Share images: the fonts as bytes. The renderer's .wasm is bundled by wrangler's default rule.
 	"rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }]

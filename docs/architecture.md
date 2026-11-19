@@ -98,7 +98,7 @@ itself, and it is plain HTTP through the tunnel and the Worker.
 - `/og/<page path>.png`: the page's share image, drawn on request (below).
 - Pages (any other path that is not a file): `index.html` from `apps/web`, with the head rewritten
   for the path (below).
-- `/assets/*`, `/icons/*`, `/fonts/*`, `/favicon.svg`: static files from `apps/web`, served without
+- `/assets/*`, `/icons/*`, `/fonts/*`, `/favicon.svg`, `/robots.txt`: static files from `apps/web`, served without
   running the Worker (`run_worker_first` in `apps/worker/wrangler.jsonc`). A new top-level folder
   of static files in `apps/web/public` is added to that list.
 

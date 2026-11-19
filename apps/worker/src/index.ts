@@ -147,6 +147,10 @@ function head(response: Response, p: Page): Response {
 		'meta[property="og:description"]': p.description,
 		'meta[property="og:url"]': SITE + p.path,
 		'meta[property="og:image"]': SITE + p.og,
+		// X reads its own tags first, so they follow the page too
+		'meta[name="twitter:title"]': p.title,
+		'meta[name="twitter:description"]': p.description,
+		'meta[name="twitter:image"]': SITE + p.og,
 		'meta[property="og:image:alt"]': `${p.image.label ? `${p.image.label}: ` : ""}${p.image.title.replace(/\.$/, "")}. ${p.image.line} Independent, not affiliated with Aave Labs or the Aave DAO.`,
 	};
 	let canonical = false;
