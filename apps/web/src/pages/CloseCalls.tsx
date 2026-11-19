@@ -40,7 +40,7 @@ export function CloseCalls() {
         <Stat label="Bad debt" value={assets.data ? (bad.length ? `${bad.length} assets` : 'None') : '–'}>{bad.length ? 'see the pools' : 'in any pool'}</Stat>
       </div>
       <Card title="Closest loans" note="Under 9% from liquidation, biggest loans first. A small loan can sit here for a long time: nobody rushes to liquidate a few cents.">
-        <Region q={close} what="the loans" empty="All quiet. Nobody is close.">
+        <Region q={close} what="the loans" empty="All quiet. Nobody is close." hold={980}>
           {() => (
 <LoanTable rows={loans} market />
           )}

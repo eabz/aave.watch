@@ -238,9 +238,13 @@ padding, 16px card corners, and the type scale one size down (body 14px, stat 20
 - **Rows of activity.** A grey verb pill with its arrow (↓ In, ↑ Out, ↗ Borrowed, ↩ Paid back;
   Liquidated is the one `red` verb), the USD amount, the token, and the age on the right.
 - **Every region that loads data has four states:** loading (grey shapes of the content, no
-  spinner), empty, error, full.
-- **Phones.** A table becomes a list: the name and its two most useful numbers per row, the rest on
-  the item's own page. A long name wraps so the numbers always fit; a number never wraps. Nothing
+  spinner), empty, error, full. While it loads, a region, a chart and the page itself hold about
+  the room the content will take, so nothing on screen jumps when the data lands.
+- **Tables follow their card, not the screen.** In a card up to 860px wide a table drops "on
+  Ethereum" after a name, the bar beside a percentage and the long form of a sentence. In a card up
+  to 420px wide (a phone, or half a tablet) it becomes a list: the name and its two most useful
+  numbers per row, the rest on the item's own page. No table is ever wider than its card.
+- **Phones.** A long name wraps so the numbers always fit; a number never wraps. Nothing
   scrolls sideways except a chart being read and a switch with more options than fit. The header is
   two rows (logo, search and theme; then the menu) and scrolls away with the page. An odd last stat
   runs across the strip as one line. A liquidation's time sits on a line under it. Controls are 36px

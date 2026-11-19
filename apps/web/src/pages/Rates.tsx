@@ -33,7 +33,7 @@ export function Rates() {
           </span>
         </span>
       } note="Earn is measured over the last 7 days. Borrow is the rate right now. From 90% lent out, taking money out can be slow.">
-        <Region q={assets} what="the rates" empty="No assets yet.">
+        <Region q={assets} what="the rates" empty="No assets yet." hold={1300}>
           {() => rows.length === 0 ? <span className="muted">Nothing matches these two filters.</span> : (
 <AssetTable key={`${k}${chain}`} rows={rows} />
           )}

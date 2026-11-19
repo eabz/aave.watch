@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react'
+import { type CSSProperties, type ReactNode, useState } from 'react'
 import { type Sort, useBlocks, useNow } from './hooks.ts'
 import type { Query, Row } from './api.ts'
 import { age, band, BAND_CLASS, BAND_LABEL, block, ms, pct, short, stamp, usd } from './format.ts'
@@ -30,17 +30,17 @@ export const Mark = ({ size = 26 }: { size?: number }) => (
 /** A token: its logo (looked up by contract) and symbol, linking to its page. */
 export function Token({ chain, token, symbol, large, bare, plain }: { chain: number | string; token?: string; symbol: string; large?: boolean; bare?: boolean; plain?: boolean }) {
   const file = logo(chain, token, symbol)
-  const img = file ? <img src={`/icons/${file}`} alt={bare ? symbol : ''} /> : <i className={KIND_CLASS[kind(symbol)]} aria-hidden="true">{symbol[0]?.toUpperCase()}</i>
+  const img = file ? <img src={`/icons/${file}`} alt={bare ? symbol : ''} width={large ? 44 : 24} height={large ? 44 : 24} loading="lazy" decoding="async" /> : <i className={KIND_CLASS[kind(symbol)]} aria-hidden="true">{symbol[0]?.toUpperCase()}</i>
   const cls = `tk${large ? ' tk--l' : ''}`
   return plain || bare ? <span className={cls}>{img}{!bare && symbol}</span> : <a className={cls} href={tokenPath(symbol)}>{img}{symbol}</a>
 }
 
 /** A chain's logo and name, or a named thing "on" that chain (a pool, a market), linking to it. */
 export function Chain({ id, name, href }: { id: number | string; name?: string; href?: string }) {
-  const body = <><img src={`/icons/chains/${id}.svg`} alt="" />{name ? <><b>{name}</b><span className="muted">on {chainName(id)}</span></> : chainName(id)}</>
+  const body = <><img src={`/icons/chains/${id}.svg`} alt="" width="18" height="18" loading="lazy" decoding="async" />{name ? <><b>{name}</b><span className="muted">on {chainName(id)}</span></> : chainName(id)}</>
   return href ? <a className="ch" href={href}>{body}</a> : <span className="ch">{body}</span>
 }
-export const ChainPill = ({ id }: { id: number | string }) => <span className="pill"><img src={`/icons/chains/${id}.svg`} alt="" />{chainName(id)}</span>
+export const ChainPill = ({ id }: { id: number | string }) => <span className="pill"><img src={`/icons/chains/${id}.svg`} alt="" width="14" height="14" loading="lazy" decoding="async" />{chainName(id)}</span>
 export const KindPill = ({ symbol }: { symbol: string }) => { const k = kind(symbol); return k === 'other' ? null : <span className={`pill ${KIND_CLASS[k]}`}>{{ dollar: 'Dollar', eth: 'ETH', btc: 'BTC', money: symbol.toLowerCase().includes('eur') ? 'Euro' : 'Gold', other: '' }[k]}</span> }
 
 /** An amount that changed is green or red, in percent. A rate that changed is grey, in points. */
@@ -92,9 +92,9 @@ export const Crumb = ({ to, label, here }: { to: string; label: string; here: st
 )
 
 /** The four states of anything that loads: grey shapes, an error with one thing to do, an empty sentence, the content. */
-export function Region({ q, empty, what, children }: { q: Query<{ data: Row[] }>; empty: string; what: string; children: (rows: Row[]) => ReactNode }) {
+export function Region({ q, empty, what, hold, children }: { q: Query<{ data: Row[] }>; empty: string; what: string; hold?: number; children: (rows: Row[]) => ReactNode }) {
   const rows = q.data?.data
-  if (!rows && q.loading) return <div className="state" aria-busy="true">{[60, 85, 40].map((w) => <span key={w} className="skel" style={{ width: `${w}%` }} />)}</div>
+  if (!rows && q.loading) return <div className="state" aria-busy="true" style={hold ? ({ '--hold': `${hold}px` } as CSSProperties) : undefined}>{[60, 85, 40].map((w) => <span key={w} className="skel" style={{ width: `${w}%` }} />)}</div>
   if (!rows) return <div className="state" role="alert"><span>Could not load {what}. {q.error ?? 'The API did not answer'}.</span><button className="btn" type="button" onClick={q.refetch}>Try again</button></div>
   return (
     <>

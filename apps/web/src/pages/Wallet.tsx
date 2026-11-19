@@ -22,9 +22,9 @@ export function Wallet({ address }: { address: string }) {
   useTopic('feed', (e) => { if (e.data?.user === address) { for (const q of [a1, a2, a3, a4, events]) q.refetch() } })
   const queries = [a1, a2, a3, a4]
   const ready = queries.every((q) => q.data || q.error)
-  const accounts = useMemo(() => queries.flatMap((q) => q.data?.data ?? []).filter((a) => num(a.collateral_usd) + num(a.debt_usd) > 0).sort((a, b) => num(b.debt_usd) - num(a.debt_usd) || num(b.collateral_usd) - num(a.collateral_usd)),
+  const accounts = useMemo(() => !ready ? [] : queries.flatMap((q) => q.data?.data ?? []).filter((a) => num(a.collateral_usd) + num(a.debt_usd) > 0).sort((a, b) => num(b.debt_usd) - num(a.debt_usd) || num(b.collateral_usd) - num(a.collateral_usd)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [a1.data, a2.data, a3.data, a4.data])
+    [ready, a1.data, a2.data, a3.data, a4.data])
   const loans = accounts.filter((a) => a.health_factor != null && num(a.debt_usd) > 0)
   const worst = loans.length ? loans.reduce((a, b) => (b.health_factor < a.health_factor ? b : a)) : null
   const history = useApi(worst ? '/v1/history/account' : null, worst ? { chain: worst.chain_id, user: address, spoke: worst.spoke, step: 'day', hours: 24 * 366 * 5 } : {})
@@ -45,7 +45,7 @@ export function Wallet({ address }: { address: string }) {
         {worst && <BandPill hf={worst.health_factor} />}
       </div>
       <h1 className="visually-hidden">Wallet {short(address)}</h1>
-      {!ready ? <span className="muted">Reading this wallet…</span> : accounts.length === 0 && <p>This wallet has nothing in Aave v4.</p>}
+      {!ready ? <div className="state muted" aria-busy="true" style={{ minHeight: '80vh' }}>Reading this wallet…</div> : accounts.length === 0 && <p>This wallet has nothing in Aave v4.</p>}
       {worst && d != null && (
         <Card note={`This is the loan in ${worst.spoke_name || short(worst.spoke)}${loans.length > 1 ? `, the closest of ${loans.length}` : ''}.`}>
           <div className="gauge" role="img" aria-label={`${pct(d, 1)} from liquidation, in the ${band(worst.health_factor)} band`}>
@@ -62,6 +62,7 @@ export function Wallet({ address }: { address: string }) {
           <Stat label="Deposits minus loans" value={usd(dep - bor)} at={accounts[0]} />
         </div>
       )}
+      {worst && !history.data && !history.error && <Card><div className="state chart" aria-busy="true"><span className="skel" style={{ width: '40%' }} /></div></Card>}
       {worst && points.debt.length > 1 && (
         <Card>
           <Chart id="wallet" title={`This wallet in ${worst.spoke_name || short(worst.spoke)}`} ranges={RANGES}
