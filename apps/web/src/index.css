@@ -108,6 +108,9 @@ a.name:hover, a.tk:hover, a.ch:hover b { text-decoration: underline; text-decora
 .sort { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; border-radius: 4px; }
 .sort:hover { color: var(--ink); }
 .scroll { overflow-x: auto; }
+/* a long list inside a card: the head stays, the rows scroll */
+.scroll--y { max-height: 318px; overflow-y: auto; border-radius: 6px; }
+.scroll--y thead th { position: sticky; top: 0; background: var(--card); z-index: 1; }
 table { border-collapse: collapse; width: 100%; }
 th { text-align: left; font: 600 13px/18px var(--font-text); color: var(--ink-2); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th.r { text-align: right; }

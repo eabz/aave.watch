@@ -218,7 +218,7 @@ on a phone, 24px above 720px; content is at most 1040px wide. Depth is a lighter
   symbol or name beside them, on a 1px `line` ring so a white logo shows on a white card. A logo is
   looked up by contract, never by symbol: `apps/web/public/icons/tokens.json` maps
   `<chain id>:<token address>` to a file in `icons/tokens/` and records where it came from. Chains
-  are `icons/chains/<chain id>.svg`. Sources, in order: the icon set of Aave's open-source interface
+  are `icons/chains/<chain id>.svg`: the four v4 chains and the 18 others Aave v3 runs on. Sources, in order: the icon set of Aave's open-source interface
   (vector, most tokens and all four chains), DefiLlama's icons by contract, CoinGecko's token list
   by contract (saved as PNG). All 48 token contracts listed on 2026-11-19 have a file. A contract with no entry
   gets a plain circle in its kind colour with the symbol's first letter; add its logo and its line
@@ -226,7 +226,8 @@ on a phone, 24px above 720px; content is at most 1040px wide. Depth is a lighter
   only as those tokens' logos, at token size, beside their symbol.
 - **Tables.** Names left, numbers right, at most six columns, the biggest first. A column header
   sorts the table when pressed; an arrow shows on the sorted column. A long table shows its first
-  rows and a "Show more" button. A wide table
+  rows and a "Show more" button; a long list beside a chart scrolls inside its card instead, with
+  its head kept in view. A wide table
   scrolls inside its card. A row that has nothing to say in a column says why in words ("Collateral
   only") instead of showing zeros.
 - **Lent out and limit used.** Two different things, never both called "how full". *Lent out* is

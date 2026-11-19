@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { type Row, useApi } from '../api.ts'
 import { Chart, type Point } from '../Chart.tsx'
 import { ms, pct, usd } from '../format.ts'
-import { CHAINS, MOVES, num, sum } from '../lib.ts'
+import { chainName, CHAINS, MOVES, num, sum } from '../lib.ts'
 import { AssetTable } from '../tables.tsx'
 import { Card, Chain, Change, Move, Region, Stamp, Stat, Used } from '../ui.tsx'
 import { useNow } from '../hooks.ts'
@@ -18,7 +18,6 @@ export function Now() {
   const summary = useApi('/v1/summary', {}, 30_000)
   const totals = useApi('/v1/history/totals', { step: 'day', hours: 24 * 366 * 5 })
   const v3 = useApi('/v1/history/v3-totals', { step: 'day', hours: 24 * 366 * 5 })
-  const [allChains, setAllChains] = useState(false)
   const assets = useApi('/v1/hub-assets', {}, 30_000)
   const events = useApi('/v1/events', { limit: 500 }, 30_000)
 
@@ -97,21 +96,20 @@ export function Now() {
           <Chart id="share" title="v4 share of Aave" ranges={RANGES}
             series={[{ label: 'Of deposits', rate: true, fmt: share, points: versus.dep }, { label: 'Of loans', rate: true, fmt: share, points: versus.bor }]} />
         </Card>
-        <Card title="v3 and v4 by chain" note="Deposits in each version, and how much of the chain's total is already in v4.">
+        <Card title="v3 and v4 by chain" note={`Deposits in each version on all ${versus.rows.length} chains, and how much of each chain is already in v4. Scroll for the rest.`}>
           <Region q={v3} what="the v3 totals" empty="No v3 readings yet.">
             {() => (
               <>
-                <div className="scroll"><table style={{ minWidth: 0 }}>
+                <div className="scroll scroll--y" tabIndex={0} role="region" aria-label="v3 and v4 by chain, scrollable"><table style={{ minWidth: 0 }}>
                   <thead><tr><th scope="col">Chain</th><th scope="col" className="r">v3</th><th scope="col" className="r">v4</th><th scope="col" className="r">In v4</th></tr></thead>
-                  <tbody>{(allChains ? versus.rows : versus.rows.slice(0, 6)).map((r) => (
+                  <tbody>{versus.rows.map((r) => (
                     <tr key={r.id}>
-                      <td>{CHAINS.includes(r.id) ? <Chain id={r.id} /> : r.name ?? `Chain ${r.id}`}</td>
-                      <td className="r">{usd(r.v3)}</td><td className={`r${r.v4 ? '' : ' muted'}`}>{r.v4 ? usd(r.v4) : 'not there'}</td>
+                      <td><span className="ch"><img src={`/icons/chains/${r.id}.svg`} alt="" />{r.name ?? chainName(r.id)}</span></td>
+                      <td className={`r${r.v3 ? '' : ' muted'}`}>{r.v3 ? usd(r.v3) : 'not there'}</td><td className={`r${r.v4 ? '' : ' muted'}`}>{r.v4 ? usd(r.v4) : 'not there'}</td>
                       <td>{r.v4 ? <Used value={r.v4 / (r.v3 + r.v4)} plain /> : null}</td>
                     </tr>
                   ))}</tbody>
                 </table></div>
-                {!allChains && versus.rows.length > 6 && <div><button className="btn" type="button" onClick={() => setAllChains(true)}>Show all {versus.rows.length} chains</button></div>}
               </>
             )}
           </Region>
