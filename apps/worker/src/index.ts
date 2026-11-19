@@ -35,7 +35,7 @@ export default {
 
 		const response = await env.ASSETS.fetch(request);
 		if (!response.headers.get("content-type")?.includes("text/html")) return response;
-		return head(response, await page(route(url.pathname), lookup(env, ctx, url.origin), false, url.pathname));
+		return head(response, await page(route(url.pathname), lookup(env, ctx, url.origin), false, url.pathname), url.searchParams.get("v"));
 	},
 } satisfies ExportedHandler<Vars>;
 
@@ -140,24 +140,28 @@ async function shareImage(env: Vars, ctx: ExecutionContext, url: URL): Promise<R
 }
 
 /** Rewrites the tags of apps/web/index.html that link previews and search engines read. */
-function head(response: Response, p: Page): Response {
+function head(response: Response, p: Page, v: string | null): Response {
+	// shortcut: a link ending in ?v=<letters or digits> keeps that in its canonical address and its image address, so a
+	// preview service that cached a bad card for a page (X keeps one for about a week) sees a new page. Drop it once
+	// nobody needs to force a fresh preview.
+	const fresh = v && /^[a-z0-9]{1,16}$/i.test(v) ? `?v=${v}` : "";
 	const content: Record<string, string> = {
 		'meta[name="description"]': p.description,
 		'meta[property="og:title"]': p.title,
 		'meta[property="og:description"]': p.description,
-		'meta[property="og:url"]': SITE + p.path,
-		'meta[property="og:image"]': SITE + p.og,
+		'meta[property="og:url"]': SITE + p.path + fresh,
+		'meta[property="og:image"]': SITE + p.og + fresh,
 		// X reads its own tags first, so they follow the page too
 		'meta[name="twitter:title"]': p.title,
 		'meta[name="twitter:description"]': p.description,
-		'meta[name="twitter:image"]': SITE + p.og,
+		'meta[name="twitter:image"]': SITE + p.og + fresh,
 		'meta[property="og:image:alt"]': `${p.image.label ? `${p.image.label}: ` : ""}${p.image.title.replace(/\.$/, "")}. ${p.image.line} Independent, not affiliated with Aave Labs or the Aave DAO.`,
 	};
 	let canonical = false;
 	let rewriter = new HTMLRewriter()
 		.on("title", { element: (e) => void e.setInnerContent(p.title) })
-		.on('link[rel="canonical"]', { element: (e) => void ((canonical = true), e.setAttribute("href", SITE + p.path)) })
-		.on("head", { element: (e) => void e.onEndTag((end) => void (canonical || end.before(`<link rel="canonical" href="${esc(SITE + p.path)}" />`, { html: true }))) });
+		.on('link[rel="canonical"]', { element: (e) => void ((canonical = true), e.setAttribute("href", SITE + p.path + fresh)) })
+		.on("head", { element: (e) => void e.onEndTag((end) => void (canonical || end.before(`<link rel="canonical" href="${esc(SITE + p.path + fresh)}" />`, { html: true }))) });
 	for (const [selector, value] of Object.entries(content)) {
 		rewriter = rewriter.on(selector, { element: (e) => void e.setAttribute("content", value) });
 	}
