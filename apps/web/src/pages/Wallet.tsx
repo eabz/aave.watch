@@ -51,7 +51,7 @@ export function Wallet({ address }: { address: string }) {
           <div className="gauge" role="img" aria-label={`${pct(d, 1)} from liquidation, in the ${band(worst.health_factor)} band`}>
             <i style={{ left: `${Math.min(100, d * 200)}%` }} /><b style={{ left: `${Math.max(8, Math.min(92, d * 200))}%` }}>{d === 0 ? 'Can be liquidated now' : `${pct(d, 1)} away`}</b>
           </div>
-          <div className="gscale"><span style={{ left: 0 }}>liquidation</span><span style={{ left: '18%' }}>9%</span><span style={{ left: '66%' }}>33%</span><span className="end" style={{ left: '100%' }}>50% or more</span>
+          <div className="gscale"><span style={{ left: 0 }}>0%</span><span style={{ left: '18%' }}>9%</span><span style={{ left: '66%' }}>33%</span><span className="end" style={{ left: '100%' }}>50% or more</span>
             <em style={{ left: '9%' }}>Close</em><em style={{ left: '42%' }}>Watch</em><em style={{ left: '83%' }}>Safe</em></div>
         </Card>
       )}

@@ -186,8 +186,9 @@ only capitals are the group names in search results.
 | `radius-row` | 12px | a selected row, a tooltip |
 | `radius-pill` | 99px | pills, menu items, switches, the search box, bars |
 
-Spacing scale: 4, 8, 12, 16, 20, 24, 32, 48, 64. Cards have 18px padding. The page gutter is 16px
-on a phone, 24px above 720px; content is at most 1040px wide. Depth is a lighter surface and a 1px
+Spacing scale: 4, 8, 12, 16, 20, 24, 32, 48, 64. Cards have 18px padding. The page gutter is 16px,
+24px above 720px. Up to 560px wide (a phone) everything is one step tighter: 12px gutter, 14px card
+padding, 16px card corners, and the type scale one size down (body 14px, stat 20px, display 32px); content is at most 1040px wide. Depth is a lighter surface and a 1px
 `line`. No shadows. A card never sits inside another card.
 
 ## Components, the rules that matter
@@ -239,8 +240,11 @@ on a phone, 24px above 720px; content is at most 1040px wide. Depth is a lighter
 - **Every region that loads data has four states:** loading (grey shapes of the content, no
   spinner), empty, error, full.
 - **Phones.** A table becomes a list: the name and its two most useful numbers per row, the rest on
-  the item's own page. Nothing scrolls sideways except a chart being read. Touch targets are at
-  least 44px high; with a mouse, 32px.
+  the item's own page. A long name wraps so the numbers always fit; a number never wraps. Nothing
+  scrolls sideways except a chart being read and a switch with more options than fit. The header is
+  two rows (logo, search and theme; then the menu) and scrolls away with the page. An odd last stat
+  runs across the strip as one line. A liquidation's time sits on a line under it. Controls are 36px
+  high on a phone, 40px on other touch screens, 32px with a mouse.
 - **Buttons.** One quiet style: `card-2` ground, `ink` text, pill shape, 32px high (Copy, Try
   again, Show all). A switch between views of one thing (a chart's range, the theme) is a row of
   them on a `card-2` track; the chosen one is `ink` with `bg` text. No primary button: the site is
@@ -261,7 +265,8 @@ Minimal and exact. Modelled on the rate chart in the Aave app and the price char
 - One series: a 1.75px `accent-strong` line, a fill under it from 28% `accent` to nothing, a dot
   with a soft halo on the last complete reading.
 - A dotted `line` grid. Ticks sit on the right, at round values that bracket the data as tightly as
-  round steps allow, all in one format (`$0.50B`, `$1.00B`). Five on a desktop, three on a phone.
+  round steps allow, all in one format, without zeros they all share (`$0.5B`, `$1.0B`; `$250M`, `$500M`; `5%`, `10%`).
+  Five on a desktop, three on a phone. The plot gives the ticks only the room the longest one needs.
 - Time labels sit on real boundaries: the first of each month over a long range, midnights for
   days, whole hours inside a day (`18:00`). Months are three letters.
 - Axis text is 12px on every screen; it does not shrink with the chart.
@@ -305,7 +310,7 @@ Every token in this file is a CSS variable in `apps/web/src/tokens.css`, the one
 app: colours (each written once with `light-dark()`; `color-scheme` picks the side and `data-theme`
 overrides it), the three font families and the type styles (`--type-title` and so on, used as
 `font: var(--type-title)`), radii, the spacing scale (`--s-1` to `--s-9`), `--gutter`, `--content`,
-`--target` (32px, 44px on touch) and the three durations. A coloured pill or fill sets `--c` to a
+`--target` (32px, 40px on touch, 36px on a phone) and the three durations. A coloured pill or fill sets `--c` to a
 kind or state colour and reads `--pill-ground` and `--pill-text`. Components use variables only,
 never a raw colour, size or font name. The fonts are self-hosted in `apps/web/public/fonts/`.
 

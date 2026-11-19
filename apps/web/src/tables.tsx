@@ -35,7 +35,7 @@ export function AssetTable({ rows, first = 'asset', pool = true, step = 25 }: { 
                 <tr key={`${k.chain}:${k.hub}:${k.asset}`}>
                   <td>{first === 'asset' ? <Token chain={k.chain} token={r.token} symbol={r.symbol} /> : name(r)}</td>
                   <td className="r">{usd(num(r.added_usd))}</td>
-                  {idle ? <td className="muted" colSpan={2}>Not lent out, so it earns nothing</td> : <><td className="r">{pct(r.supply_apy_7d)}</td><td className="r">{pct(num(r.drawn_rate_apr))}</td></>}
+                  {idle ? <td className="muted idle" colSpan={2}>Not lent out<span className="wide">, so it earns nothing</span></td> : <><td className="r">{pct(r.supply_apy_7d)}</td><td className="r">{pct(num(r.drawn_rate_apr))}</td></>}
                   {first === 'asset' && pool ? <td>{name(r)}</td> : <td className="r">{idle ? '' : usd(num(r.owed_usd))}</td>}
                   <td>{idle ? null : <Used value={num(r.usage)} />}</td>
                 </tr>

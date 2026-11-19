@@ -50,7 +50,7 @@ export function CloseCalls() {
         <Card title="Latest liquidations">
           <Region q={liqs} what="the liquidations" empty="No liquidations yet.">
             {(rows) => <div className="rows">{rows.map((l) => (
-              <div className="row" key={l.tx_hash + l.log_index}>
+              <div className="row row--2" key={l.tx_hash + l.log_index}>
                 <span className="pills"><span className="pill c-red">Liquidated</span><b>{usd(num(l.debt_usd))}</b>{l.debt_symbol && <Token chain={l.chain_id} token={l.debt_token} symbol={l.debt_symbol} />}<Wallet address={l.user} /></span>
                 <span className="muted">{age(l.block_time, now)}</span>
               </div>

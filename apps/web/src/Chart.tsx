@@ -23,6 +23,13 @@ function ticks(lo: number, hi: number, n: number): number[] {
   return out
 }
 
+/** Tick labels without the zeros they all share: `$750.0M, $500.0M` reads `$750M, $500M`; `$1.50B, $1.00B` reads `$1.5B, $1.0B`. */
+function lean(labels: string[]): string[] {
+  const tail = /0(?=\D*$)/, dot = /\.(?=\D*$)/
+  while (labels.some((l) => l.includes('.')) && labels.every((l) => !l.includes('.') || /\.\d*0\D*$/.test(l))) labels = labels.map((l) => (l.includes('.') ? l.replace(tail, '').replace(dot, '') : l))
+  return labels
+}
+
 /** Label times on real boundaries: month starts over a long range, midnights for days, whole hours inside two days. */
 function marks(t0: number, t1: number, max: number): { t: number; text: string }[] {
   const all: number[] = []
@@ -62,12 +69,13 @@ export function Chart({ id, title, series, ranges, avg, hourly, tools }: { id: s
   )
   if (pts.length < 2) return <div className="chart" ref={box}>{head}<span className="muted">Not enough readings to draw a line yet.</span></div>
 
-  const W = Math.max(240, width), small = W < 480, H = small ? 200 : 250
-  const X0 = 4, X1 = W - 62, Y0 = 14, Y1 = H - 30
+  const W = Math.max(240, width), small = W < 480, H = small ? 180 : 250
   const vs = pts.map((p) => p[1])
   const tk = ticks(Math.min(...vs), Math.max(...vs), small ? 3 : 4)
   const lo = tk[0], hi = tk[tk.length - 1], t0 = pts[0][0], t1 = pts[pts.length - 1][0]
-  const tf = s.tick?.(hi) ?? s.fmt
+  const tl = lean(tk.map(s.tick?.(hi) ?? s.fmt))
+  // the plot gives the tick labels only the room the longest one needs (11px text, at most 7px a character)
+  const X0 = 4, X1 = W - 12 - Math.max(...tl.map((t) => t.length)) * 7, Y0 = 14, Y1 = H - 30
   const x = (t: number) => X0 + ((t - t0) / (t1 - t0)) * (X1 - X0)
   const y = (v: number) => Y1 - ((v - lo) / (hi - lo)) * (Y1 - Y0)
   const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)} ${y(p[1]).toFixed(1)}`).join('')
@@ -106,8 +114,8 @@ export function Chart({ id, title, series, ranges, avg, hourly, tools }: { id: s
         <svg width={W} height={H} role="img" tabIndex={0} onPointerMove={move} onPointerLeave={() => setAt(null)} onBlur={() => setAt(null)} onKeyDown={key}
           aria-label={`${s.label} from ${day(t0 * 1000)} to ${day(t1 * 1000)}: ${s.fmt(first[1])} to ${s.fmt(last[1])}. Arrow keys read each point.`}>
           <defs><linearGradient id={`g-${id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--accent-strong)" stopOpacity=".24" /><stop offset="1" stopColor="var(--accent-strong)" stopOpacity="0" /></linearGradient></defs>
-          {tk.map((v) => <g key={v}><line className="gridl" x1={X0} x2={X1} y1={y(v)} y2={y(v)} /><text x={X1 + 8} y={y(v) + 4}>{tf(v)}</text></g>)}
-          {marks(t0, t1, small ? 3 : 5).filter((m) => x(m.t) > X0 + 24 && x(m.t) < X1 - 24).map((m) => <text key={m.t} x={x(m.t)} y={H - 8} textAnchor="middle">{m.text}</text>)}
+          {tk.map((v, i) => <g key={v}><line className="gridl" x1={X0} x2={X1} y1={y(v)} y2={y(v)} /><text x={X1 + 8} y={y(v) + 4}>{tl[i]}</text></g>)}
+          {marks(t0, t1, small ? 4 : 5).filter((m) => x(m.t) > X0 + 24 && x(m.t) < X1 - 24).map((m) => <text key={m.t} x={x(m.t)} y={H - 8} textAnchor="middle">{m.text}</text>)}
           <path d={`${d}L${X1} ${Y1}L${X0} ${Y1}Z`} fill={`url(#g-${id})`} />
           {avg && s.rate && <line className="avg" x1={X0} x2={X1} y1={y(mean)} y2={y(mean)} />}
           <path className="ln" d={d} />
@@ -126,5 +134,6 @@ export function Chart({ id, title, series, ranges, avg, hourly, tools }: { id: s
 
 if (import.meta.env.DEV) {
   console.assert(ticks(1273, 1334, 4).join() === '1260,1280,1300,1320,1340', 'ticks')
+  console.assert(lean(['$750.0M', '$0.00']).join() === '$750M,$0' && lean(['$1.50B', '$1.00B', '$0']).join() === '$1.5B,$1.0B,$0' && lean(['15.00%', '0.00%']).join() === '15%,0%' && lean(['3.25%', '3.00%']).join() === '3.25%,3.00%', 'lean')
   console.assert(marks(Date.UTC(2026, 10, 18, 2) / 1000, Date.UTC(2026, 10, 19, 2) / 1000, 5).map((m) => m.text).join() === '06:00,12:00,18:00,19 Nov', 'marks')
 }

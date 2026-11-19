@@ -13,8 +13,9 @@ export function price(n: number | null | undefined): string {
 export function usd(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return DASH
   const a = Math.abs(n)
-  if (a >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
-  if (a >= 1e6) return `$${(n / 1e6).toFixed(1)}M`
+  // the steps sit where rounding would otherwise print "$1000K" or "$1000.0M"
+  if (a >= 999.95e6) return `$${(n / 1e9).toFixed(2)}B`
+  if (a >= 999_500) return `$${(n / 1e6).toFixed(1)}M`
   if (a >= 1e3) return `$${(n / 1e3).toFixed(0)}K`
   return `$${n.toFixed(2)}`
 }
@@ -78,7 +79,7 @@ export const BAND_CLASS: Record<Band, string> = { now: 'pill--solid', close: 'c-
 
 if (import.meta.env.DEV) {
   const t = Date.parse('2026-01-01T03:12:04Z')
-  console.assert(usd(1_310_000_000) === '$1.31B' && usd(137_090_000) === '$137.1M' && usd(787_931) === '$788K' && usd(2.536) === '$2.54' && usd(null) === DASH, 'usd')
+  console.assert(usd(1_310_000_000) === '$1.31B' && usd(137_090_000) === '$137.1M' && usd(787_931) === '$788K' && usd(999_700) === '$1.0M' && usd(999_960_000) === '$1.00B' && usd(2.536) === '$2.54' && usd(null) === DASH, 'usd')
   console.assert(usdExact(11221532.4) === '$11,221,532' && usdExact(197.018) === '$197.02', 'usdExact')
   console.assert(pct(0.0496) === '4.96%' && pct(0.68, 0) === '68%' && pct(0.000002) === 'under 0.01%' && pct(0) === '0.00%', 'pct')
   console.assert(age('2026-01-01 03:12:00', t) === '4s ago' && age('2026-01-01 00:00:04', t) === '3h 12m ago' && age('2025-11-14 00:00:00', t) === '14 Nov', 'age')

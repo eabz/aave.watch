@@ -75,7 +75,7 @@ function Search() {
       <label className="search__box">
         <Icon name="search" />
         <input ref={input} type="search" role="combobox" aria-expanded={open} aria-controls="search-results" aria-autocomplete="list" autoComplete="off" spellCheck={false}
-          placeholder="Search a token, pool, market or address" aria-label="Search a token, pool, market or address"
+          placeholder={matchMedia('(max-width: 560px)').matches ? 'Search' : 'Search a token, pool, market or address'} aria-label="Search a token, pool, market or address"
           value={q} onChange={(e) => { setQ(e.target.value); setSel(0); setOpen(true) }} onFocus={() => setOpen(true)} onKeyDown={onKey} />
         <kbd aria-hidden="true">/</kbd>
       </label>

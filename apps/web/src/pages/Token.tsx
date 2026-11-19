@@ -13,7 +13,7 @@ const rate = (v: number) => `${v.toFixed(2)}%`
 
 export function Token({ symbol }: { symbol: string }) {
   const assets = useApi('/v1/hub-assets', {}, 30_000)
-  const rows = useMemo(() => (assets.data?.data ?? []).filter((r) => String(r.symbol).toLowerCase() === symbol).sort((a, b) => num(b.added_usd) - num(a.added_usd)), [assets.data, symbol])
+  const rows = useMemo(() => (assets.data?.data ?? []).filter((r) => String(r.symbol).toLowerCase() === symbol && (r.hub_name || num(r.added_usd) > 0)) /* an unnamed pool shows once it holds something */.sort((a, b) => num(b.added_usd) - num(a.added_usd)), [assets.data, symbol])
   const [picked, setPicked] = useState(0)
   const pool = rows[Math.min(picked, rows.length - 1)]
   const key = pool && hubKey(pool)

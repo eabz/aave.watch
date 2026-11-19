@@ -84,7 +84,7 @@ export const Card = ({ title, tools, note, children }: { title?: ReactNode; tool
 /** A column header that sorts its table. The arrow shows on the sorted column. */
 export const SortTh = ({ k, sort, toggle, r, children }: { k: string; sort: Sort; toggle: (k: string) => void; r?: boolean; children: ReactNode }) => (
   <th scope="col" className={r ? 'r' : undefined} aria-sort={sort.key === k ? sort.dir : undefined}>
-    <button className="sort" type="button" onClick={() => toggle(k)}>{children}{sort.key === k && <span aria-hidden="true">{sort.dir === 'ascending' ? ' ↑' : ' ↓'}</span>}</button>
+    <button className="sort" type="button" onClick={() => toggle(k)}>{children}{sort.key === k && <span aria-hidden="true">{sort.dir === 'ascending' ? ' ↑' : ' ↓'}</span>}</button>
   </th>
 )
 export const Crumb = ({ to, label, here }: { to: string; label: string; here: string }) => (
