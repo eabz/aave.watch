@@ -217,7 +217,7 @@ fn band(health: f64) -> &'static str {
 }
 
 /// Unix seconds as `YYYY-MM-DD hh:mm:ss` UTC, the time format of the API.
-fn utc(t: u64) -> String {
+pub(crate) fn utc(t: u64) -> String {
     // Days to civil date, Howard Hinnant's algorithm.
     let (days, secs) = ((t / 86_400) as i64, t % 86_400);
     let z = days + 719_468;

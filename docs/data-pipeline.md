@@ -203,6 +203,7 @@ the stream's retention it goes back to ClickHouse the same way.
 | Tip | `tip.rs` | `live`: follows the head and appends unsettled batches to `raw:{chain_id}`; owns the health factor tiers (`due:{chain_id}`) |
 | Processor, settled | `process.rs` | `raw.*` to `core.*` and `meta.assets`, `meta.reserves`, `meta.tokens`, from the `core` cursor to the `calls` cursor |
 | Aave v3 totals | `v3.rs` | hourly supplied and borrowed of every v3 market on 21 chains, into `raw.v3_calls`; see [Aave v3 totals](#aave-v3-totals) |
+| Wallet history | `daily.rs`, `0011_user_account_hourly.sql` | `indexer daily`, run once: one reading a day of every open account for the days before the tier readings; `core.user_account_hourly` for the charts; see [Wallet history](#wallet-history) |
 | Processor, tip | `live.rs` | `raw:{chain_id}` to the latest-state keys, the rankings and the `feed`, `state`, `risk`, `chain` streams |
 
 Where the code is simpler than the design above, on purpose:
@@ -273,7 +274,8 @@ a result) using the same `crates/protocol` code as the parser. It does not write
 
 Tier reads are not replayed in `catching_up`: the tier depends on the previous reading, so history
 would have to be walked one block at a time on an archive node. Historical health factor exists at
-the blocks where the user had an event.
+the blocks where the user had an event, and once a day from `indexer daily`
+([Wallet history](#wallet-history)).
 
 The schedule state (who is due when) lives in a Dragonfly sorted set, so a restart resumes it; the
 switch to `live` builds it. Timers are tokio intervals keyed on block numbers, not wall-clock
@@ -328,12 +330,59 @@ Read so v4 can be compared with v3 (the Adoption page). Totals only: no position
 - **Decoded** in SQL by the view `core.v3_reserve_state` (one row per reserve per reading:
   `supplied, borrowed, price, supplied_usd, borrowed_usd`). Every answer it uses is one uint256.
 - **Gaps.** When a node no longer has a block's state the market is skipped for that hour and the
-  hour is still marked done. The provider keeps only recent state on Monad and MegaETH, so their
-  v3 history starts later than the others. Harmony and Fantom (frozen, nothing supplied) and
+  hour is still marked done. The provider keeps only recent state on Monad and MegaETH, so those
+  two are read from their public nodes, which have it. To read such hours again from another node,
+  delete their markers. Harmony and Fantom (frozen, nothing supplied) and
   Aptos (not EVM) are not read.
 - **Not the same as DefiLlama's TVL:** every reserve and every supplier is counted; DefiLlama
   leaves out some tokens and Ethena's backing wallets, and lists the Ink market as a separate
   protocol. Borrowed matches it within 1% per chain (2026-11-18).
+
+## Wallet history
+
+A wallet page charts collateral (USD), debt (USD) and health factor of one wallet over time, per
+Spoke, from its first position until now.
+
+- **Readings.** `core.user_account_state` has three kinds, told apart by `reason`: `event` (the
+  blocks where the wallet had an event, since each chain's start), `tier` (the live schedule,
+  hourly or faster for every account with a position, since 2026-11-18) and `daily` (below).
+  Before the tier readings a wallet's health factor moved with prices between its events; the
+  daily readings fill that in.
+- **`indexer daily`** (`daily.rs`) reads, for each chain and each 00:00 UTC, `getUserAccountData`
+  and `getUserLastRiskPremium` for every account open on that day, at one block of the day's first
+  20 minutes (found by time, as for v3), through multicalls of `FETCH_MULTICALL` calls,
+  `FETCH_PARALLEL` at a time. The answers go to `raw.calls` with `reason = daily`; the same code as
+  the processor decodes them and the command writes the rows to `core.user_account_state` itself,
+  because the processor's cursor is long past those blocks. A reparse finds the answers in
+  `raw.calls` and writes the same rows. Per-reserve positions are not read: an account row needs
+  only these two views, so `user_reserve_state` keeps event and tier readings only.
+- **Open on a day** means: the account's last reading before that midnight (any `reason`) shows
+  collateral value or debt above zero. So an account is read from the day after its first event
+  until a reading shows neither. An account that only supplies with collateral switched off has
+  zero collateral value and zero debt at every reading and is not read daily; its chart is flat at
+  zero either way.
+- **Which days.** From the midnight after the chain's first account reading to the midnight of the
+  day its tier readings began (2026-11-18). After that the tier schedule reads every account at
+  least hourly, so nothing daily runs going forward.
+- **Run and re-run.** It is a one-off command, not a stage, and needs only the fetcher's
+  environment (`RPC_HTTP_{chain_id}`, an archive node):
+  `aave-watch-indexer daily [chain_id [from to]]`, dates as `YYYY-MM-DD`, both inclusive; with no
+  arguments every chain and every day. A day that is done is recorded in `meta.cursor`
+  (`stream = 'daily:{unix time of the midnight}'`, `block_number` the block read) and skipped by the
+  next run, so the command can be stopped and started at will; rows are keyed on the block, so a
+  day read twice replaces itself. A failed day is retried every minute. When the node no longer has
+  a block's state the day is marked done with `block_number = 0` and nothing is written; a day
+  with no open account is marked the same way. To read days again (another node, or after a
+  reparse changed which accounts were open), delete their `daily:` rows from `meta.cursor`.
+- **`core.user_account_hourly`** (`0011_user_account_hourly.sql`): the last reading of each hour
+  per account: `chain_id, spoke, user, hour, block_number, block_time, health_factor,
+  collateral_usd, debt_usd, risk_premium`, ordered by `(chain_id, user, spoke, hour)` so one
+  wallet is one short range. A `ReplacingMergeTree(block_number)` fed by an ordinary materialized
+  view, like the `*_latest` tables: the newest block of the hour wins, a row written twice changes
+  nothing, and old rows from `indexer daily` reach it as they are written. Read with `FINAL`.
+  `rollup_backfill.sh` refills it from `core.user_account_state`.
+  No daily rollup: eight months of hours for a wallet in ten Spokes is 41,000 rows and answers in
+  under half a second (2026-11-19).
 
 ## Prices
 
@@ -415,7 +464,7 @@ CREATE TABLE raw.calls (
   target LowCardinality(String), selector LowCardinality(String),
   args String,                        -- calldata after the selector
   ok UInt8, result String CODEC(ZSTD(3)),
-  reason LowCardinality(String),      -- why it was read: event, heartbeat, tier, meta
+  reason LowCardinality(String),      -- why it was read: event, heartbeat, tier, meta, daily
   inserted_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(inserted_at)
 PARTITION BY (chain_id, toYYYYMM(block_time))
@@ -501,7 +550,8 @@ re-runs the same `SELECT` once without the time filter.
 
 Rollups: `events_hourly`, `events_daily`, `hub_asset_hourly` (last state per hour, for supply,
 debt, usage and rate charts), `hub_spoke_hourly`, `reserve_hourly`, `liquidations_daily`. More are
-added when a panel needs one, not before.
+added when a panel needs one, not before. `user_account_hourly` is the one rollup that is not
+refreshable: see [Wallet history](#wallet-history).
 
 Two plain views compute at read time (`0009_derived.sql`): `core.liquidations`, one row per
 `LiquidationCall` with debt, collateral seized, bonus and protocol fee in USD; and
@@ -518,7 +568,7 @@ Two plain views compute at read time (`0009_derived.sql`): `core.liquidations`, 
 | `tokens` | `chain_id, address` | symbol, name, decimals, canonical asset, logo path |
 | `price_sources` | `chain_id, spoke, reserve_id` | feed address, feed kind, decimals, since block |
 | `labels` | `chain_id, address` | label, category |
-| `cursor` | `chain_id, stream` | last complete settled block and hash. Three streams: `raw` (fetcher, logs), `calls` (fetcher, view calls) and `core` (processor) |
+| `cursor` | `chain_id, stream` | last complete settled block and hash. Three streams: `raw` (fetcher, logs), `calls` (fetcher, view calls) and `core` (processor). Also the "done" marks `watch:{address}` (Spoke discovery) and `daily:{unix time}` (wallet history) |
 | `parser_runs` | `chain_id, parser_version, range` | when a reparse ran and over what |
 
 All `ReplacingMergeTree`. `tokens`, `hubs`, `spokes`, `reserves` and `labels` are also exposed as
@@ -534,7 +584,7 @@ ClickHouse dictionaries, so queries use `dictGet` for names instead of joins.
 | Supply, debt, rate over time | `hub_asset_hourly`, `reserve_hourly` |
 | Hub-to-Spoke map and caps now | `hub_spoke_state_latest` |
 | HF distribution, top positions | `user_account_latest` |
-| History of one position | `user_account_state` prefix `(chain_id, spoke, user)` |
+| History of one wallet | `user_account_hourly` prefix `(chain_id, user)` |
 | Price shock | `user_reserve_latest` joined to `prices_latest` and reserve config |
 | Config timeline | `core.events` where `name` is a config event, `by_place` |
 | Anything "right now" | Dragonfly first (below) |

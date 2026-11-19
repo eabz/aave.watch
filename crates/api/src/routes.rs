@@ -28,11 +28,13 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/reserves", get(reserves))
         .route("/v1/positions", get(positions))
         .route("/v1/account", get(account))
+        .route("/v1/holders", get(holders))
         .route("/v1/events", get(events))
         .route("/v1/liquidations", get(liquidations))
         .route("/v1/history/hub-asset", get(history_hub_asset))
         .route("/v1/history/totals", get(history_totals))
         .route("/v1/history/v3-totals", get(history_v3_totals))
+        .route("/v1/history/account", get(history_account))
         .route("/v1/stream", get(sse))
         .fallback(|| async { fail(StatusCode::NOT_FOUND, "No such endpoint. See docs/api.md.") })
         .with_state(app)
@@ -73,6 +75,14 @@ impl Params<'_> {
             Some(_) => Err(fail(StatusCode::BAD_REQUEST, format!("{name} must be letters and digits."))),
         }
     }
+    /// An optional token symbol (`USDC`, `WETH.e`, `PT-sUSDE-7MAY2026`), lowercased; empty when absent.
+    fn symbol(&self) -> Result<String, Response> {
+        match self.0.get("symbol") {
+            None => Ok(String::new()),
+            Some(v) if v.len() <= 64 && v.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)) => Ok(v.to_ascii_lowercase()),
+            Some(_) => Err(fail(StatusCode::BAD_REQUEST, "symbol must be a token symbol, like USDC.")),
+        }
+    }
     fn uint(&self, name: &str, default: u64, max: u64) -> Result<String, Response> {
         match self.0.get(name) {
             None => Ok(default.to_string()),
@@ -83,6 +93,14 @@ impl Params<'_> {
         match self.0.get(name) {
             None => Ok(default),
             Some(v) => v.parse::<f64>().ok().filter(|f| f.is_finite()).ok_or_else(|| fail(StatusCode::BAD_REQUEST, format!("{name} must be a number, like 1.1."))),
+        }
+    }
+    /// `step`: one item per hour (the default) or per day.
+    fn step(&self) -> Result<String, Response> {
+        match self.0.get("step").map(String::as_str) {
+            None | Some("hour") => Ok("hour".into()),
+            Some("day") => Ok("day".into()),
+            Some(_) => Err(fail(StatusCode::BAD_REQUEST, "step must be hour or day.")),
         }
     }
     fn required(&self, name: &str, value: String) -> Result<String, Response> {
@@ -237,12 +255,33 @@ async fn account(State(app): S, Query(q): Q) -> Response {
     }
 }
 
+/// The wallets that hold the most of one token, every market and chain added up. `by=debt` ranks
+/// by what they have borrowed of it instead.
+async fn holders(State(app): S, Query(q): Q) -> Response {
+    let pr = Params(&q);
+    let symbol = p!(pr.symbol().and_then(|s| pr.required("symbol", s)));
+    let (chain, limit) = (p!(pr.chain()), p!(pr.uint("limit", 20, 200)));
+    let by = match q.get("by").map(String::as_str) {
+        None | Some("supplied") => "supplied_usd",
+        Some("debt") => "debt_usd",
+        Some(_) => return fail(StatusCode::BAD_REQUEST, "by must be supplied or debt."),
+    };
+    let sql = format!("SELECT user, sum(s.supplied_usd) AS supplied_usd, sum(s.debt_usd) AS debt_usd, uniqExact(s.chain_id, s.spoke) AS markets, \
+               groupUniqArray(s.chain_id) AS chains, max(s.block_number) AS block_number, max(s.block_time) AS block_time \
+        FROM (SELECT * FROM core.user_reserve_latest FINAL WHERE {BY_CHAIN}) AS s \
+        INNER JOIN (SELECT chain_id, spoke, reserve_id FROM meta.reserves FINAL \
+                    WHERE lower(dictGetOrDefault('meta.tokens_dict', 'symbol', (chain_id, token), '')) = {{symbol:String}}) AS r \
+          ON r.chain_id = s.chain_id AND r.spoke = s.spoke AND r.reserve_id = s.reserve_id \
+        GROUP BY user HAVING {by} > 0 ORDER BY {by} DESC LIMIT {{limit:UInt32}}");
+    list(&app, &sql, &[("chain", chain), ("symbol", symbol), ("limit", limit)], 60).await
+}
+
 // ---- history --------------------------------------------------------------------------------
 
 async fn events(State(app): S, Query(q): Q) -> Response {
     let pr = Params(&q);
     let (chain, spoke, hub, user) = (p!(pr.chain()), p!(pr.address("spoke")), p!(pr.address("hub")), p!(pr.address("user")));
-    let (name, before, limit) = (p!(pr.word("name")), p!(pr.uint("before", 0, u64::MAX)), p!(pr.uint("limit", 100, 1000)));
+    let (name, before, limit, symbol) = (p!(pr.word("name")), p!(pr.uint("before", 0, u64::MAX)), p!(pr.uint("limit", 100, 1000)), p!(pr.symbol()));
     // LIMIT 1 BY drops a row written twice without paying for FINAL on the big table.
     let sql = format!("SELECT * {HIDE}, dictGetOrDefault('meta.tokens_dict', 'symbol', (chain_id, toString(token)), '') AS symbol, \
                dictGetOrDefault('meta.spokes_dict', 'name', (chain_id, toString(spoke)), '') AS spoke_name \
@@ -250,9 +289,10 @@ async fn events(State(app): S, Query(q): Q) -> Response {
           AND ({{spoke:String}} = '' OR spoke = {{spoke:String}}) AND ({{hub:String}} = '' OR hub = {{hub:String}}) \
           AND ({{user:String}} = '' OR user = {{user:String}}) AND ({{name:String}} = '' OR name = {{name:String}}) \
           AND ({{before:UInt64}} = 0 OR block_number < {{before:UInt64}}) \
+          AND ({{symbol:String}} = '' OR lower(dictGetOrDefault('meta.tokens_dict', 'symbol', (chain_id, toString(token)), '')) = {{symbol:String}}) \
         ORDER BY block_time DESC, block_number DESC, log_index DESC \
         LIMIT 1 BY chain_id, block_number, log_index LIMIT {{limit:UInt32}}");
-    let params = [("chain", chain), ("spoke", spoke), ("hub", hub), ("user", user), ("name", name), ("before", before), ("limit", limit)];
+    let params = [("chain", chain), ("spoke", spoke), ("hub", hub), ("user", user), ("name", name), ("before", before), ("limit", limit), ("symbol", symbol)];
     match app.ch.query(&sql, &params).await {
         Ok(mut rows) => {
             for r in rows.iter_mut() {
@@ -299,23 +339,43 @@ async fn totals(app: &App, q: &HashMap<String, String>, rows: &str, key: &str, e
     let pr = Params(q);
     let chain = p!(pr.chain());
     let hours = p!(pr.uint("hours", 720, 24 * 366 * 5));
-    let step = match q.get("step").map(String::as_str) {
-        None | Some("hour") => "hour",
-        Some("day") => "day",
-        Some(_) => return fail(StatusCode::BAD_REQUEST, "step must be hour or day."),
-    };
+    let step = p!(pr.step());
+    let hub = p!(pr.address("hub"));
     let sql = format!("SELECT chain_id, {extra} hour, sum(supplied_usd) AS supplied_usd, sum(borrowed_usd) AS borrowed_usd, sum(liquidity_usd) AS liquidity_usd, \
                max(block_number) AS block_number, hour AS block_time FROM ( \
           {rows} ORDER BY chain_id, {key}, hour WITH FILL TO toStartOfHour(now()) + toIntervalHour(1) STEP toIntervalHour(1) \
           INTERPOLATE (supplied_usd AS supplied_usd, borrowed_usd AS borrowed_usd, liquidity_usd AS liquidity_usd, block_number AS block_number)) \
         WHERE hour >= now() - toIntervalHour({{hours:UInt32}}) AND ({{step:String}} = 'hour' OR toHour(hour) = 0 OR hour = toStartOfHour(now())) \
         GROUP BY chain_id, hour ORDER BY chain_id, hour");
-    list(app, &sql, &[("chain", chain), ("hours", hours), ("step", step.into())], 300).await
+    list(app, &sql, &[("chain", chain), ("hours", hours), ("step", step), ("hub", hub)], 300).await
+}
+
+/// One wallet's collateral, debt and health factor over time, per Spoke. An hour with no reading
+/// keeps the last one (WITH FILL, per Spoke), from the wallet's first reading to its newest; the
+/// stamp stays that of the reading carried. The whole history of the wallet is filled before
+/// `hours` cuts it, so the first hour asked for is carried from before the window.
+async fn history_account(State(app): S, Query(q): Q) -> Response {
+    let pr = Params(&q);
+    let chain = p!(pr.chain().and_then(|c| pr.required("chain", c)));
+    let user = p!(pr.address("user").and_then(|u| pr.required("user", u)));
+    let (spoke, hours, step) = (p!(pr.address("spoke")), p!(pr.uint("hours", 720, 24 * 366 * 5)), p!(pr.step()));
+    let sql = "SELECT chain_id, spoke, dictGetOrDefault('meta.spokes_dict', 'name', (chain_id, spoke), '') AS spoke_name, hour, \
+               if(debt_usd > 0, health_factor, NULL) AS health_factor, collateral_usd, debt_usd, risk_premium, block_number, block_time FROM ( \
+          SELECT *, max(hour) OVER (PARTITION BY spoke) AS newest FROM ( \
+            SELECT chain_id, toString(spoke) AS spoke, hour, health_factor, collateral_usd, debt_usd, risk_premium, block_number, block_time \
+            FROM core.user_account_hourly FINAL \
+            WHERE chain_id = {chain:UInt32} AND user = {user:String} AND ({spoke:String} = '' OR spoke = {spoke:String}) \
+            ORDER BY chain_id, spoke, hour WITH FILL STEP toIntervalHour(1) \
+            INTERPOLATE (health_factor AS health_factor, collateral_usd AS collateral_usd, debt_usd AS debt_usd, \
+                         risk_premium AS risk_premium, block_number AS block_number, block_time AS block_time))) \
+        WHERE hour >= now() - toIntervalHour({hours:UInt32}) AND ({step:String} = 'hour' OR toHour(hour) = 0 OR hour = newest) \
+        ORDER BY spoke, hour";
+    list(&app, sql, &[("chain", chain), ("user", user), ("spoke", spoke), ("hours", hours), ("step", step)], 300).await
 }
 
 async fn history_totals(State(app): S, Query(q): Q) -> Response {
     let rows = format!("SELECT chain_id, hub, asset_id, hour, added_usd AS supplied_usd, owed_usd AS borrowed_usd, liquidity_usd, block_number \
-        FROM core.hub_asset_hourly FINAL WHERE {BY_CHAIN}");
+        FROM core.hub_asset_hourly FINAL WHERE {BY_CHAIN} AND ({{hub:String}} = '' OR hub = {{hub:String}})");
     totals(&app, &q, &rows, "hub, asset_id", "").await
 }
 

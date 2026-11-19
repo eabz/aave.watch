@@ -17,7 +17,8 @@ Chain RPCs (WebSocket heads + eth_getLogs + multicall), one set per chain
                               API Worker (Cloudflare)      ── edge ──
                               /v1/*  proxy + edge cache
                               /v1/stream  SSE relay
-                              /*  static web assets
+                              /og/*.png  share images, drawn on request
+                              /*  static web assets, page head per path
                                          ▲
                                   web (Vite + React)
 ```
@@ -89,7 +90,37 @@ itself, and it is plain HTTP through the tunnel and the Worker.
 
 - `/v1/*` (not stream): forward to the API, cache GETs at the edge per the API's `Cache-Control`.
 - `/v1/stream`: pass the SSE response body through. One connection to the API per client.
-- Everything else: static assets from `apps/web`.
+- `/og/<page path>.png`: the page's share image, drawn on request (below).
+- Pages (any other path that is not a file): `index.html` from `apps/web`, with the head rewritten
+  for the path (below).
+- `/assets/*`, `/icons/*`, `/fonts/*`, `/favicon.svg`: static files from `apps/web`, served without
+  running the Worker (`run_worker_first` in `apps/worker/wrangler.jsonc`). A new top-level folder
+  of static files in `apps/web/public` is added to that list.
+
+**Share images and link previews.** `apps/worker/src/share.ts` is the one place that knows what a
+page is called: it maps a path (`/`, `/rates`, `/close-calls`, `/token/<symbol>`,
+`/pool/<chain id>/<address>`, `/market/<chain id>/<address>`, `/wallet/<address>`; case does not
+matter) to a title, a description and the content of its share image, and holds the image's SVG
+template. It is pure, so it is tested with `pnpm --filter worker test:share` (plain Node, no
+Cloudflare account) and previewed with `node scripts/og-samples.mts`. What the images show is in
+[branding.md](branding.md#share-images-and-favicon).
+
+- **Image.** The Worker reads the figures through the `API` binding (3 s limit; `/v1/summary`,
+  `/v1/hub-assets`, `/v1/hubs`, `/v1/spokes`, `/v1/reserves`, and `/v1/account` once per chain for
+  a wallet) and the logos through the `ASSETS` binding, fills the template and renders it to PNG
+  with `@resvg/resvg-wasm`; the three TTFs in `apps/worker/src/fonts/` are bundled with the code.
+  The answer carries `Cache-Control: public, max-age=3600` and is put in the Cache API under its
+  path, so a path is drawn at most once an hour per data centre. If a read fails the image keeps
+  its fixed sentence and is cached for 60 seconds. An unknown token, pool or market answers 404.
+- **Page head.** `HTMLRewriter` sets `<title>`, `meta[name=description]`, `og:title`,
+  `og:description`, `og:url`, `og:image`, `og:image:alt` and `link[rel=canonical]` (added if the
+  page has none). It only changes tags that `apps/web/index.html` already has. A pool or market
+  page costs one API read for its name (`/v1/hubs` or `/v1/spokes`, cached 5 minutes at the edge);
+  if that fails the title uses the short address. A path the list above does not know gets the home
+  text and its own address.
+- **Size and plan.** The upload is 2.6 MB, 1.04 MB gzipped (the renderer is 2.4 MB of it), inside
+  the free plan's 3 MB. Drawing one image takes 30 to 120 ms of CPU, which is over the free plan's
+  10 ms per request: the Worker needs the paid plan. Every page view now runs the Worker too.
 
 **How the Worker reaches the box.** Through a Cloudflare Tunnel and a Workers VPC service, not a
 public hostname:
@@ -111,7 +142,7 @@ does the subscribing and the Worker relays its stream.
 
 `shortcut: one API connection per SSE client; move fan-out into a Durable Object (one upstream connection, many clients) when concurrent viewers load the server.`
 
-`shortcut: no rate limit on the Worker; add a per-IP rate-limit binding before the site is announced.`
+`shortcut: no rate limit on the Worker, and /og/wallet/<any address>.png costs four API reads and a render; add a per-IP rate-limit binding before the site is announced.`
 
 ## Server
 
@@ -159,9 +190,14 @@ The API runs as the systemd unit `aave-watch-api` (binary `/usr/local/bin/aave-w
 The fetcher runs as the systemd unit `aave-watch-fetch` (binary `/usr/local/bin/aave-watch-indexer fetch`,
 unit file in `infra/systemd/`, `DynamicUser`). Its RPC URLs, which carry the provider key, are in
 `/etc/aave-watch/fetch.env` (root only; template in `infra/systemd/fetch.env.example`): the four
-v4 chains and 17 more for the Aave v3 totals, the same provider on each except Metis (a public node). The
+v4 chains and 17 more for the Aave v3 totals, the same provider on each except Metis, Monad and
+MegaETH (public nodes; the provider keeps no old state for the last two). The
 processor is the same binary as the unit `aave-watch-process` (`aave-watch-indexer process`); it has
 no RPC URL.
+
+`aave-watch-indexer daily` is a one-off command, not a unit: it backfills one account reading a day
+for the wallet history charts and needs the fetcher's environment. How to run it:
+[data-pipeline.md](data-pipeline.md#wallet-history).
 
 `cloudflared` 2026.11.1 is installed from Cloudflare's apt repo (`pkg.cloudflare.com`) and runs as the
 systemd unit `cloudflared`, connected as the tunnel `aave-watch-box`. It makes outbound connections

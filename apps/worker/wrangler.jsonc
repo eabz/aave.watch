@@ -15,10 +15,14 @@
 	"vpc_services": [
 		{ "binding": "API", "service_id": "01a1ef52-9070-7be1-880c-da6f8754fb56", "remote": true }
 	],
-	// The web build is served from this Worker; /v1/* goes to the code in src/.
+	// The web build is served from this Worker. The code in src/ runs first for everything except the
+	// static files below: /v1/* (API), /og/* (share images) and pages (link-preview tags in the head).
 	"assets": {
 		"directory": "../web/dist",
+		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/v1/*"]
-	}
+		"run_worker_first": ["/*", "!/assets/*", "!/icons/*", "!/fonts/*", "!/favicon.svg"]
+	},
+	// Share images: the fonts as bytes. The renderer's .wasm is bundled by wrangler's default rule.
+	"rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }]
 }

@@ -68,7 +68,7 @@ fn targets(now: u64) -> Vec<u64> {
 /// A block whose time is in `[time, time + WINDOW]`, or the first after it. `None` when the chain
 /// had no block yet. `seen` (time -> number) keeps every header fetched, so later searches start
 /// close. Interpolates between the nearest known blocks on each side.
-async fn block_at(rpc: &Rpc, seen: &mut BTreeMap<u64, u64>, time: u64) -> Result<Option<u64>> {
+pub(crate) async fn block_at(rpc: &Rpc, seen: &mut BTreeMap<u64, u64>, time: u64) -> Result<Option<u64>> {
     async fn fetch(rpc: &Rpc, seen: &mut BTreeMap<u64, u64>, tag: String) -> Result<(u64, u64)> {
         let h = header(&rpc.call("eth_getBlockByNumber", json!([tag, false])).await?)?;
         seen.insert(h.time, h.number);
@@ -155,7 +155,7 @@ async fn read_market(codec: &Codec, rpc: &Rpc, market: &V3Market, block: u64) ->
 }
 
 /// The node says it no longer has this block's state: asking again will not help.
-fn gone(error: &str) -> bool {
+pub(crate) fn gone(error: &str) -> bool {
     let e = error.to_lowercase();
     ["pruned", "historic", "missing trie node", "not available", "header not found", "state not found"].iter().any(|s| e.contains(s))
 }

@@ -44,21 +44,41 @@ Spokes are read from the Hubs (`getSpokeCount`, `getSpokeAddress` per asset), no
 55 on Ethereum, 3 on Base, 12 on Avalanche, 8 on Arc. Several Ethereum Spokes draw from more than
 one Hub; the Treasury Spoke is connected to all four.
 
-Named Ethereum Spokes, from the Aave docs (the other 44 have no published name yet):
+Every standard and Treasury Spoke has a published name. Names are from the Aave docs address page
+([aave.com/docs/resources/addresses](https://aave.com/docs/resources/addresses), read 2026-11-19),
+which agrees with the `@aave-dao/aave-address-book` constants (4.77.8). "Gold Correlated" is not in
+the docs: its name is from the Aave Pro API (`spokes.name` at `api.aave.com/internal/v4/graphql`).
+The last column is the name Aave Pro shows where it differs from the docs. Tokenization Spokes are
+named by their vault symbol.
 
-| Spoke | Address |
-|---|---|
-| Main | `0x94e7A5dCbE816e498b89aB752661904E2F56c485` |
-| Bluechip | `0x973a023A77420ba610f06b3858aD991Df6d85A08` |
-| Ethena Correlated | `0x58131E79531caB1d52301228d1f7b842F26B9649` |
-| Ethena Ecosystem | `0xba1B3D55D249692b669A164024A838309B7508AF` |
-| EtherFi eSpoke | `0xbF10BDfE177dE0336aFD7fcCF80A904E15386219` |
-| Forex | `0xD8B93635b8C6d0fF98CbE90b5988E3F2d1Cd9da1` |
-| Gold | `0x65407b940966954b23dfA3caA5C0702bB42984DC` |
-| Kelp eSpoke | `0x3131FE68C4722e726fe6B2819ED68e514395B9a4` |
-| Lido eSpoke | `0xe1900480ac69f0B296841Cd01cC37546d92F35Cd` |
-| Lombard BTC | `0x7EC68b5695e803e98a21a9A05d744F28b0a7753D` |
-| Treasury | `0xB9B0b8616f6Bf6841972a52058132BE08d723155` |
+| Chain | Spoke | Address | Aave Pro shows |
+|---|---|---|---|
+| Ethereum | Main | `0x94e7A5dCbE816e498b89aB752661904E2F56c485` | |
+| Ethereum | Bluechip | `0x973a023A77420ba610f06b3858aD991Df6d85A08` | |
+| Ethereum | Ethena Correlated | `0x58131E79531caB1d52301228d1f7b842F26B9649` | |
+| Ethereum | Ethena Ecosystem | `0xba1B3D55D249692b669A164024A838309B7508AF` | |
+| Ethereum | EtherFi eSpoke | `0xbF10BDfE177dE0336aFD7fcCF80A904E15386219` | Etherfi |
+| Ethereum | Forex | `0xD8B93635b8C6d0fF98CbE90b5988E3F2d1Cd9da1` | |
+| Ethereum | Gold | `0x65407b940966954b23dfA3caA5C0702bB42984DC` | |
+| Ethereum | Gold Correlated | `0x115aF1C2db26cD8ECa3f29055E4E424AF4edF616` | (address book: `PAXG_PAXOS_ESPOKE`) |
+| Ethereum | Kelp eSpoke | `0x3131FE68C4722e726fe6B2819ED68e514395B9a4` | Kelp |
+| Ethereum | Lido eSpoke | `0xe1900480ac69f0B296841Cd01cC37546d92F35Cd` | Lido |
+| Ethereum | Lombard BTC | `0x7EC68b5695e803e98a21a9A05d744F28b0a7753D` | Lombard |
+| Ethereum | PAXG Gold | `0xAD75cE6354f87F3135cE10621d385d8D1e2562C2` | |
+| Ethereum | USDG Maple eSpoke | `0x774b9655413c34809c1f1b16b654465A89EBE989` | Maple SyrupUSDG |
+| Ethereum | USDG Pendle | `0x956d8e0A89cfa3744428C4641b5a53B56167a7f9` | |
+| Ethereum | Treasury | `0xB9B0b8616f6Bf6841972a52058132BE08d723155` | |
+| Base | MAG7 | `0x17905Db0e4A3514467539956c084180616AE7B8D` | Coinbase Stocks |
+| Base | Treasury | `0x5F8d0102F5B51Fae6DE9d2F2561bda63Fb5Db674` | |
+| Avalanche | Main | `0x435272CefF93a1E657E8ABfdf0A13e95900A3a56` | |
+| Avalanche | AVAX Correlated | `0x3b517594277c67307CF2d7CBE6FE1D4399B68c41` | |
+| Avalanche | Ethena Ecosystem | `0xaf22446124e566e54845f65b722E4dCbf12b650A` | |
+| Avalanche | Forex | `0x6a37776B5E026dBdF043b4F933c323C84DD1B514` | |
+| Avalanche | Treasury | `0x2C4Aea1A5F000889c6DfFE8f52377aFc2CB113a6` | |
+| Arc | Main | `0xB843bdC3a87A05E77E07Df9FE48928b3A34b134d` | |
+| Arc | Forex | `0x4164EBCAF74670aa74C8D4F59de6157c0780F1bB` | |
+| Arc | USDC Maple eSpoke | `0x18Dde098d25722C14e09842a6Fa7db6aAFC395a2` | Maple SyrupUSDC |
+| Arc | Treasury | `0xcbd466CB8709D9f6dd8312668B4dbef394cE0e15` | |
 
 ### Spoke kinds
 

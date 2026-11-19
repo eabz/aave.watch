@@ -312,7 +312,7 @@ pub(crate) struct Rpc {
 }
 
 impl Rpc {
-    fn new(url: String) -> Self {
+    pub(crate) fn new(url: String) -> Self {
         let http = reqwest::Client::builder().timeout(Duration::from_secs(60)).build().expect("http client");
         Self { http, url }
     }

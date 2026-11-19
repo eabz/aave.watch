@@ -3,14 +3,19 @@
 Draft for discussion. Every number below names its definition and its source, so we can argue about
 the number before writing a query. Terms and contract names are in [protocol.md](protocol.md).
 
-## Main reader
+## Readers
 
-A risk analyst. Decided 2026-11-18. Consequences:
+Anyone who uses Aave: the curious, the depositor and the borrower, the analyst
+([PRODUCT.md](../PRODUCT.md)). Decided 2026-11-19; from 2026-11-18 the only reader was a risk
+analyst. Consequences:
 
-- The landing page is Risk (page 5), not Overview.
-- Per-user reads (health factor, positions) are in the first build, not the last.
-- Every number shows its block and age, and links to the contract call or event behind it.
-- Tables export to CSV. Charts are secondary to sortable tables.
+- Every page opens with the answer to an everyday question; the dense panels sit one click down.
+- The UI says pool, market, limit, bad debt, distance from liquidation. This file keeps the
+  protocol's words (Hub, Spoke, cap, deficit, health factor) because it defines the numbers. The
+  word list is in [branding.md](branding.md).
+- Every number still has its block and age; the UI shows them behind "Show blocks".
+- Per-user reads (health factor, positions) stay in the first build: the wallet page and Close calls
+  depend on them.
 
 ## What only v4 has
 
@@ -50,7 +55,36 @@ breakdown, config drift, deficit.
 
 ## Pages
 
-Refresh: **live** = pushed over the stream as it changes, **5m**, **1h** = cached query.
+Three menu pages, a search box, and one page for every token, pool, market and wallet. Each row
+names where its numbers are defined below. Refresh: **live** = pushed over the stream as it
+changes, **5m**, **1h** = cached query.
+
+| Page | Opens with | Then | Numbers from |
+|---|---|---|---|
+| **Now** (`/`) | Deposited, borrowed, lent out, v4 share of Aave, wallets close to liquidation, each with its change over 7 days | Deposits and borrows over time; deposits by chain; big moves (the largest recent Supply, Withdraw, Borrow, Repay, LiquidationCall); the biggest assets with their rates | 1, 7 |
+| **Rates** (`/rates`) | Every asset in every pool: deposited, earn (7 days), borrow rate, lent out | Filter by kind of asset and by chain; the list of pools | 2 |
+| **Close calls** (`/close-calls`) | Wallets close to liquidation and those that can be liquidated now, biggest loans first | Recent liquidations; limits nearly full; anything paused, frozen or halted; bad debt; the list of markets | 5, 6 |
+| **Search** | Tokens, pools, markets, wallets, in that order; the biggest of each before a word is typed | A pasted address opens the wallet | registry |
+| **Token** (`/token/<symbol>`) | Deposited and borrowed across every pool and chain, the best place to earn, the cheapest place to borrow | Rate and deposits over time per pool; the pools that hold it; the markets that borrow it and how much of each limit is used; biggest holders (`/v1/holders`); the token's moves (`/v1/events?symbol=`) | 2, 3, 7 |
+| **Pool** (`/pool/<chain>/<hub>`) | Deposited, borrowed, lent out, bad debt | What it is made of by kind of asset; every asset with its rates; the markets plugged into it; deposits and borrows over time; fees | 2, 3 |
+| **Market** (`/market/<chain>/<spoke>`) | Deposited, borrowed, wallets close, wallets that can be liquidated | Loans by distance from liquidation; what can be deposited and borrowed, with the rules; biggest loans to watch; liquidations in this market | 4, 5, 6 |
+| **Wallet** (`/wallet/<address>`) | The gauge: how far the wallet's closest loan is from liquidation | The wallet over time in its closest market (distance from liquidation, borrowed, deposited, from `/v1/history/account`: one reading a day before 2026-11-18, hourly or faster after); what it holds and owes in each market; its moves | 8 |
+
+Not on a page yet: the liquidity map (3) beyond the per-token and per-pool tables, price shock,
+stale risk premium, config drift and exit liquidity (5), and config changes (9). They are the
+analyst's drill-downs and come after the pages above.
+
+Distance from liquidation = 1 − 1 / health factor, as a percentage. Bands: Safe over 33% (HF ≥ 1.5),
+Watch 9% to 33% (HF 1.1 to 1.5), Close under 9% (HF 1.0 to 1.1), can be liquidated now (HF < 1).
+Placeholders: open decision 2.
+
+"Lent out" is the usage ratio of a Hub asset. "Limit used" is `drawn / drawCap` (or
+`supplied / addCap`) of one Spoke on one Hub asset. They are different numbers and are never both
+called "how full".
+
+## Number definitions
+
+The panels below are grouped by subject, not by page. A page takes what its row above names.
 
 ### 1. Overview
 
@@ -171,11 +205,20 @@ curves, new assets, Spokes and reserves, position managers. Source: `events`. Re
 
 ## Build order
 
-1. Hub, Spoke, Liquidity map, Config changes. Events plus Hub, Spoke and reserve state and prices.
-   This already gives the Risk page its cap, flag, deficit and oracle panels.
-2. Risk (the rest), Liquidations, and the user panels on the Spoke page. Needs per-user reads, the
-   expensive part of the indexer.
-3. Wallet, Live feed, Overview.
+The data for all of this is already indexed and served ([api.md](api.md)); what follows is the
+order of the UI rebuild.
+
+1. The shell: header, search, footer, tokens of [branding.md](branding.md), logos.
+2. Now.
+3. Token, Pool, Market, Wallet.
+4. Rates and Close calls.
+5. The analyst's drill-downs listed under "Not on a page yet".
+
+Built 2026-11-19: steps 1 to 4, the wallet's history over time, biggest holders and moves of a
+token, a pool's totals over time (`/v1/history/totals?hub=`), sortable columns, and the live stream:
+one connection to `/v1/stream` (`feed`, `risk`) adds moves to Now as they happen and makes Now,
+Close calls, a market and a wallet read their figures again, at most every five seconds. Polling
+every 15 to 60 seconds stays as the fallback.
 
 ## Open decisions
 
