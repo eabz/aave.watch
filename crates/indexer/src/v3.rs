@@ -14,8 +14,8 @@ use tokio::time::sleep;
 
 use crate::fetch::{ClickHouse, Rpc, env_u64, header};
 
-/// 2026-03-24 00:00 UTC, the day of the first Aave v4 block: v3 history starts with v4's.
-const LAUNCH: u64 = 1_774_310_400;
+/// 2022-03-16 00:00 UTC, the day Aave v3 went live on its first chains: the whole v3 history.
+const LAUNCH: u64 = 1_647_388_800;
 /// Hourly readings for this long back; one a day (00:00 UTC) before that.
 const HOURLY: u64 = 7 * 86_400;
 // shortcut: an hour is read once it is 30 minutes old, at a block inside its first 20 minutes,
@@ -42,14 +42,14 @@ async fn pass(markets: &[V3Market], rpc: &Rpc, ch: &ClickHouse, codec: &Codec, s
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     for hour in targets(now).into_iter().filter(|h| !done.contains(h)) {
         let mut rows = Vec::new();
-        let block = block_at(rpc, seen, hour).await?;
-        if let Some(block) = block {
-            for market in markets {
-                rows.extend(read_market(codec, rpc, market, block).await.with_context(|| format!("{} at block {block}", market.market))?);
-            }
+        // The chain had no block yet, so it has none at any older hour either. No marker: they
+        // would all share block 0 and replace each other.
+        let Some(block) = block_at(rpc, seen, hour).await? else { break };
+        for market in markets {
+            rows.extend(read_market(codec, rpc, market, block).await.with_context(|| format!("{} at block {block}", market.market))?);
         }
         // The marker: this hour is done for the chain, whether or not a market answered.
-        rows.push(json!({"chain_id": chain_id, "market": "", "block_number": block.unwrap_or(0), "block_time": hour,
+        rows.push(json!({"chain_id": chain_id, "market": "", "block_number": block, "block_time": hour,
                          "target": "", "selector": "", "args": "", "ok": 1, "result": ""}));
         ch.insert("raw.v3_calls", &rows).await?;
     }
@@ -122,7 +122,7 @@ async fn read_market(codec: &Codec, rpc: &Rpc, market: &V3Market, block: u64) ->
         (provider, selector("getPoolDataProvider()")),
         (market.pool.to_lowercase(), selector("getReservesList()")),
     ];
-    let (time, answers) = match rpc.multicall(codec, block, &first).await {
+    let (time, answers) = match calls_at(codec, rpc, block, &first).await {
         Ok(a) => a,
         Err(e) if gone(&format!("{e:#}")) => return Ok(vec![]),
         Err(e) => return Err(e),
@@ -149,9 +149,43 @@ async fn read_market(codec: &Codec, rpc: &Rpc, market: &V3Market, block: u64) ->
     };
     push(&first, answers);
     for chunk in calls.chunks(env_u64("FETCH_MULTICALL", 200) as usize) {
-        push(chunk, rpc.multicall(codec, block, chunk).await?.1);
+        push(chunk, calls_at(codec, rpc, block, chunk).await?.1);
     }
     Ok(rows)
+}
+
+/// `Rpc::multicall`, or the same calls as one batch of plain `eth_call`s when the node cannot run
+/// the multicall at that block (zkSync Era, before it could run EVM bytecode). A plain call that
+/// reverts is a failed call; any other failure fails the batch, so a rate-limited call is never
+/// stored as a missing answer.
+async fn calls_at(codec: &Codec, rpc: &Rpc, block: u64, calls: &[(String, String)]) -> Result<(u64, Vec<(bool, String)>)> {
+    let why = match rpc.multicall(codec, block, calls).await {
+        Ok(answers) => return Ok(answers),
+        Err(e) if gone(&format!("{e:#}")) => return Err(e),
+        Err(e) => e,
+    };
+    let tag = format!("0x{block:x}");
+    let mut batch = vec![json!({"jsonrpc": "2.0", "id": 0, "method": "eth_getBlockByNumber", "params": [tag, false]})];
+    batch.extend(calls.iter().enumerate().map(|(i, (to, data))| json!({"jsonrpc": "2.0", "id": i + 1, "method": "eth_call", "params": [{"to": to, "data": data}, tag]})));
+    let reply = rpc.post(&Value::Array(batch)).await?;
+    let (time, answers) = plain_answers(&reply, calls.len()).with_context(|| format!("after the multicall failed ({why:#})"))?;
+    Ok((time, answers))
+}
+
+/// The reply to a batch of one header request (id 0) and `count` plain calls (ids 1..=count).
+fn plain_answers(reply: &Value, count: usize) -> Result<(u64, Vec<(bool, String)>)> {
+    let items = reply.as_array().with_context(|| format!("batch reply is not an array: {}", reply.to_string().chars().take(200).collect::<String>()))?;
+    let item = |id: usize| items.iter().find(|i| i["id"].as_u64() == Some(id as u64)).with_context(|| format!("batch reply has no item {id}"));
+    let time = header(&item(0)?["result"])?.time;
+    let answers = (1..=count).map(|id| {
+        let i = item(id)?;
+        match i["result"].as_str() {
+            Some(hex) => Ok((true, hex.to_string())),
+            None if i["error"]["code"] == 3 || i["error"]["message"].as_str().is_some_and(|m| m.contains("revert")) => Ok((false, "0x".to_string())),
+            None => Err(anyhow::anyhow!("call {id}: {}", i["error"])),
+        }
+    }).collect::<Result<_>>()?;
+    Ok((time, answers))
 }
 
 /// The node says it no longer has this block's state: asking again will not help.
@@ -188,6 +222,16 @@ mod tests {
         assert_eq!(guess((1000, 100), (2000, 200), 1500), 150);
         assert_eq!(guess((1000, 100), (2000, 200), 1000), 101);
         assert_eq!(guess((1000, 100), (1000, 102), 1000), 101);
+    }
+
+    #[test]
+    fn a_plain_batch_keeps_reverts_and_refuses_other_failures() {
+        let head = json!({"id": 0, "result": {"number": "0x10", "hash": "0xAA", "parentHash": "0xBB", "timestamp": "0x64"}});
+        let reply = json!([{"id": 2, "error": {"code": 3, "message": "execution reverted"}}, head, {"id": 1, "result": "0x01"}]);
+        assert_eq!(plain_answers(&reply, 2).unwrap(), (100, vec![(true, "0x01".to_string()), (false, "0x".to_string())]));
+        let limited = json!([head, {"id": 1, "error": {"code": 429, "message": "too many requests"}}]);
+        assert!(plain_answers(&limited, 1).is_err());
+        assert!(plain_answers(&json!({"error": "no batches"}), 1).is_err());
     }
 
     #[test]

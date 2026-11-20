@@ -412,15 +412,21 @@ Read so v4 can be compared with v3 (the Adoption page). Totals only: no position
   `getATokenTotalSupply`, `getTotalDebt`, `getAssetPrice` and the token's `decimals`, plus the
   oracle's `BASE_CURRENCY_UNIT`.
 - **When.** One reading per hour for the last 7 days and one per day (00:00 UTC) back to
-  2026-03-24, the first v4 day. The block is found by time: any block in the hour's first 20
+  2022-03-16, the day v3 went live on its first chains. A chain or market that did not exist yet
+  on a day answers nothing and has no row for it. The block is found by time: any block in the hour's first 20
   minutes. An hour is read once it is 30 minutes old.
   `shortcut: the settle tag is not used for v3; a reorg deeper than 30 minutes would leave a stale reading.`
 - **Stored** as returned in `raw.v3_calls` (`chain_id, market, block_number, block_time, target,
   selector, args, ok, result`). A row with `market = ''` marks the hour as done for the chain; the
   task reads every due hour that has no marker, newest first, so a restart or a new chain
-  backfills by itself.
+  backfills by itself. A pass stops at the first hour the chain has no block for: nothing older
+  can exist, and those hours get no marker.
 - **Decoded** in SQL by the view `core.v3_reserve_state` (one row per reserve per reading:
   `supplied, borrowed, price, supplied_usd, borrowed_usd`). Every answer it uses is one uint256.
+- **Old zkSync Era blocks** cannot run the multicall (the chain could not run EVM bytecode yet).
+  When a multicall fails for a reason other than missing state, the same calls go as one batch of
+  plain `eth_call`s at that block. A call that reverts is stored as failed; any other failure
+  fails the reading, which is tried again a minute later.
 - **Gaps.** When a node no longer has a block's state the market is skipped for that hour and the
   hour is still marked done. The provider keeps only recent state on Monad and MegaETH, so those
   two are read from their public nodes, which have it. To read such hours again from another node,

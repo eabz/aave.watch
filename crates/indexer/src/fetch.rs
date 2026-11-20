@@ -401,7 +401,7 @@ impl Rpc {
 
     /// Sends one request or one batch. Retries what a retry can fix (transport, 429, 5xx) a few
     /// times; any other failure goes back to the caller, who may ask for less.
-    async fn post(&self, body: &Value) -> Result<Value> {
+    pub(crate) async fn post(&self, body: &Value) -> Result<Value> {
         let mut wait = Duration::from_millis(500);
         for _ in 0..5 {
             let why = match self.http.post(&self.url).json(body).send().await {

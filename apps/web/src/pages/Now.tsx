@@ -12,12 +12,14 @@ const RANGES = [{ label: '1W', n: 8, word: 'this week' }, { label: '1M', n: 31, 
 const usdTick = (max: number) => (v: number) => (!v ? '$0' : max >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : usd(v))
 const STRENGTH = [1, 0.7, 0.45, 0.25]
 const share = (v: number) => `${v.toFixed(2)}%`
+// v3 is read back to 2022; this page compares it with v4, so it asks only for the days v4 has (first v4 day: 2026-03-24)
+const SINCE_V4 = Math.ceil((Date.now() - Date.UTC(2026, 2, 24)) / 3_600_000) + 24
 
 export function Now() {
   const now = useNow()
   const summary = useApi('/v1/summary', {}, 30_000)
   const totals = useApi('/v1/history/totals', { step: 'day', hours: 24 * 366 * 5 })
-  const v3 = useApi('/v1/history/v3-totals', { step: 'day', hours: 24 * 366 * 5 })
+  const v3 = useApi('/v1/history/v3-totals', { step: 'day', hours: SINCE_V4 })
   const assets = useApi('/v1/hub-assets', {}, 30_000)
   const events = useApi('/v1/events', { limit: 500 }, 30_000)
 
